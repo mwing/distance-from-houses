@@ -1,10 +1,12 @@
 import argparse
 import logging
+import os
 import sys
 
 from .config import load_config
 from .pipeline import run
-from .report import write_csv, write_html
+from .progress import Cancelled, Progress, TerminalProgress
+from .report import build_payload, write_csv, write_html
 from .serve import serve
 
 
@@ -20,6 +22,12 @@ def main(argv: list[str] | None = None) -> int:
     for p in (p_run, p_serve):
         p.add_argument("--port", type=int, default=8765)
         p.add_argument("--no-browser", action="store_true")
+    p_web = sub.add_parser("web", help="Run the web app")
+    p_web.add_argument("--host", default=os.environ.get("HOUSEHUNT_HOST", "127.0.0.1"))
+    p_web.add_argument("--port", type=int, default=int(os.environ.get("HOUSEHUNT_PORT", "8000")))
+    p_web.add_argument("--data-dir", default=os.environ.get("HOUSEHUNT_DATA_DIR", "data"))
+    p_web.add_argument("--no-auth", action="store_true", help="Disable the password (only allowed on 127.0.0.1)")
+    p_web.add_argument("--import-config", metavar="YAML", help="Create a search profile from a YAML config and exit")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -27,15 +35,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
+    if args.command == "web":
+        from .web.app import main as web_main
+
+        return web_main(args)
+
     cfg = load_config(args.config)
     html_path = cfg.output_dir / "listings.html"
 
     if args.command == "run":
-        results = run(cfg)
+        try:
+            results = run(cfg, Progress(TerminalProgress()))
+        except (KeyboardInterrupt, Cancelled):
+            print("\nInterrupted. Finished routes are cached; the next run continues from there.", file=sys.stderr)
+            return 130
+        payload = build_payload(results, cfg.destinations, cfg.map)
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
         csv_path = cfg.output_dir / "listings.csv"
-        write_csv(results, cfg.destinations, csv_path)
-        write_html(results, cfg.destinations, cfg.map, html_path)
+        write_csv(payload, csv_path)
+        write_html(payload, html_path)
         print(f"{len(results)} listings -> {csv_path}, {html_path}")
         if not args.serve:
             return 0

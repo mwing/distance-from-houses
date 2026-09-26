@@ -5,6 +5,7 @@ from .cache import Cache
 from .config import Config
 from .geocode import Geocoder
 from .models import Destination, Listing
+from .progress import Cancelled, Progress
 from .routing import CarRouter, TransitRouter
 from .sources import dedupe, etuovi, oikotie
 
@@ -21,11 +22,15 @@ class Result:
     too_far: bool = False
 
 
-def fetch_listings(cfg: Config) -> list[Listing]:
+def fetch_listings(cfg: Config, progress: Progress | None = None) -> list[Listing]:
+    progress = progress or Progress()
     listings: list[Listing] = []
     for source in cfg.sources:
+        progress.start(f"fetch {source}")
         try:
-            got = list(FETCHERS[source](cfg.filters, cfg.max_listings))
+            got = list(FETCHERS[source](cfg.filters, cfg.max_listings, progress=progress))
+        except Cancelled:
+            raise
         except Exception as e:
             log.error("Fetching from %s failed: %s", source, e)
             continue
@@ -74,20 +79,26 @@ def _format_times(times: dict[str, dict[str, float | None]], dests: list[Destina
     return "; ".join(parts)
 
 
-def run(cfg: Config) -> list[Result]:
+def run(cfg: Config, progress: Progress | None = None) -> list[Result]:
+    progress = progress or Progress()
     cache = Cache(cfg.cache_path)
     geocoder = Geocoder(cache)
-    dests = [geocoder.resolve(d) for d in cfg.destinations]
+    progress.start("destinations", len(cfg.destinations))
+    dests = []
+    for d in cfg.destinations:
+        progress.check()
+        dests.append(geocoder.resolve(d))
+        progress.advance()
     for d in dests:
         log.info("Destination %s at %.5f,%.5f (%s)", d.name, d.lat, d.lon, "Uusimaa" if d.in_uusimaa else "outside Uusimaa")
 
-    listings = fetch_listings(cfg)
+    listings = fetch_listings(cfg, progress)
     if not listings:
         return []
 
     points = {l.id: (l.lat, l.lon) for l in listings}
     dest_points = [(d.lat, d.lon) for d in dests]
-    car = CarRouter(cache).minutes(list(points.values()), dest_points)
+    car = CarRouter(cache).minutes(list(points.values()), dest_points, progress)
 
     results = []
     for l in listings:
@@ -113,8 +124,7 @@ def run(cfg: Config) -> list[Result]:
                     r.times[d.name]["transit_at_least"] = car_min
                     continue
                 pairs.append((r, d))
-        log.info("Querying %d transit routes (cached ones are free)", len(pairs))
-        transit = transit_router.minutes([(points[r.listing.id], (d.lat, d.lon)) for r, d in pairs])
+        transit = transit_router.minutes([(points[r.listing.id], (d.lat, d.lon)) for r, d in pairs], progress)
         for r, d in pairs:
             r.times[d.name]["transit"] = transit[(points[r.listing.id], (d.lat, d.lon))]
 
@@ -124,4 +134,5 @@ def run(cfg: Config) -> list[Result]:
         log.debug("%s, %s: %s", r.listing.address, r.listing.municipality, _format_times(r.times, dests))
     results.sort(key=lambda r: (r.too_far, r.score is None, r.score or 0))
     log.info("%d listings, %d within travel limits", len(results), sum(not r.too_far for r in results))
+    progress.start("done", message=f"{len(results)} listings")
     return results

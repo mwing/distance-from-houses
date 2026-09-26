@@ -6,6 +6,7 @@ import httpx
 
 from ..http import client, request_with_retry
 from ..models import Filters, Listing
+from ..progress import Progress
 from . import matches, normalize_municipality, parse_number
 
 BASE = "https://asunnot.oikotie.fi"
@@ -87,11 +88,15 @@ def parse_card(card: dict) -> Listing:
     )
 
 
-def fetch(f: Filters, max_listings: int, http: httpx.Client | None = None) -> Iterator[Listing]:
+def fetch(
+    f: Filters, max_listings: int, http: httpx.Client | None = None, progress: Progress | None = None
+) -> Iterator[Listing]:
     http = http or client()
     headers = _auth_headers(http)
     found = 0
     for page in range(MAX_PAGES):
+        if progress:
+            progress.check()
         resp = request_with_retry(
             lambda: http.get(f"{BASE}/api/search", params=build_params(f, page * PAGE_SIZE), headers=headers)
         )
@@ -104,5 +109,7 @@ def fetch(f: Filters, max_listings: int, http: httpx.Client | None = None) -> It
                 found += 1
                 if found >= max_listings:
                     return
+        if progress:
+            progress.advance(message=f"page {page + 1}, {found} listings")
         if len(cards) < PAGE_SIZE:
             return

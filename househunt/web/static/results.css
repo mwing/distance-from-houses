@@ -1,0 +1,19 @@
+.hh-controls { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; padding: 8px 0; }
+.hh-combine { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; }
+.hh-map { height: 55vh; min-height: 320px; border-radius: 8px; }
+.hh-table-wrap { overflow-x: auto; margin-top: 12px; }
+.hh-table-wrap table { border-collapse: collapse; width: 100%; background: var(--surface, #fff); }
+.hh-table-wrap th, .hh-table-wrap td { padding: 6px 8px; border-bottom: 1px solid var(--line, #e5e5e5); text-align: left; white-space: nowrap; }
+.hh-table-wrap th { cursor: pointer; position: sticky; top: 0; background: var(--surface-2, #f0f0f0); user-select: none; }
+.hh-table-wrap td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.hh-table-wrap tr:hover td { background: var(--hover, #f5f8ff); }
+.hh-table-wrap tr.sel td { background: var(--selected, #e3ecff); }
+.hh-table-wrap tr.far td { color: var(--muted, #888); }
+.hh-legend { background: #fff; color: #1d1d1f; padding: 8px 10px; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.25); font-size: 12px; line-height: 1.4; }
+.hh-legend .bar { width: 180px; height: 10px; border-radius: 3px; margin: 4px 0 2px; }
+.hh-legend .ticks { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.hh-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.hh-badge { display: inline-block; font-size: 11px; line-height: 1; padding: 3px 6px; border-radius: 999px; margin-right: 6px; vertical-align: 1px; background: #e8eaed; color: #1d1d1f; }
+.hh-badge-new { background: #d7f5dd; color: #0b5d1e; }
+.hh-badge-price_down { background: #dbeafe; color: #1e3a8a; }
+.hh-badge-price_up { background: #fde2e1; color: #8a1c1c; }

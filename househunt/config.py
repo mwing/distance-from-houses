@@ -1,4 +1,5 @@
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -69,15 +70,17 @@ def _parse_filters(raw: dict) -> Filters:
 
 
 def _parse_destination(raw: dict) -> Destination:
-    if "name" not in raw:
-        raise ValueError(f"Destination is missing a name: {raw}")
+    if not str(raw.get("name") or "").strip():
+        raise ValueError("Every destination needs a name")
     if not raw.get("address") and (raw.get("lat") is None or raw.get("lon") is None):
         raise ValueError(f"Destination {raw['name']!r} needs an address or lat/lon")
     modes = [str(m).lower() for m in _as_list(raw.get("modes")) or list(MODES)]
     bad = set(modes) - set(MODES)
     if bad:
         raise ValueError(f"Destination {raw['name']!r}: unknown modes {sorted(bad)}")
-    max_minutes = {str(k).lower(): float(v) for k, v in (raw.get("max_minutes") or {}).items()}
+    max_minutes = {str(k).lower(): float(v) for k, v in (raw.get("max_minutes") or {}).items() if v is not None}
+    if set(max_minutes) - set(MODES) or any(v <= 0 for v in max_minutes.values()):
+        raise ValueError(f"Destination {raw['name']!r}: max_minutes needs positive values for transit/car")
     return Destination(
         name=raw["name"],
         address=raw.get("address"),
@@ -89,18 +92,52 @@ def _parse_destination(raw: dict) -> Destination:
     )
 
 
-def load_config(path: str | Path) -> Config:
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+ROUTERS = ("hsl", "finland")
+
+
+def _parse_hhmm(value, field_name: str) -> str | None:
+    if value is None:
+        return None
+    m = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", str(value).strip())
+    if not m:
+        raise ValueError(f"{field_name} must be HH:MM, got {value!r}")
+    return f"{int(m.group(1)):02d}:{m.group(2)}"
+
+
+def config_from_dict(raw: dict, env_api_key: bool = True) -> Config:
+    try:
+        return _config_from_dict(raw or {}, env_api_key)
+    except (TypeError, AttributeError) as e:
+        raise ValueError(f"Invalid settings: {e}") from e
+
+
+def _config_from_dict(raw: dict, env_api_key: bool) -> Config:
     destinations = [_parse_destination(d) for d in raw.get("destinations") or []]
     if not destinations:
         raise ValueError("Config needs at least one destination")
+    names = [d.name for d in destinations]
+    if len(set(names)) != len(names):
+        raise ValueError("Destination names must be unique")
     t = raw.get("transit") or {}
+    depart_at = _parse_hhmm(t.get("depart_at"), "transit.depart_at")
+    arrive_by = _parse_hhmm(t.get("arrive_by"), "transit.arrive_by")
+    if arrive_by and depart_at:
+        raise ValueError("Set only one of transit.arrive_by and transit.depart_at")
+    if not arrive_by and not depart_at:
+        arrive_by = "09:00"
+    day = str(t.get("day", "tuesday")).lower()
+    if day not in WEEKDAYS:
+        raise ValueError(f"transit.day must be one of {', '.join(WEEKDAYS)}")
+    router = str(t.get("router", "hsl")).lower()
+    if router not in ROUTERS:
+        raise ValueError(f"transit.router must be one of {', '.join(ROUTERS)}")
     transit = TransitSettings(
-        api_key=t.get("api_key") or os.environ.get("DIGITRANSIT_API_KEY"),
-        router=t.get("router", "hsl"),
-        arrive_by=t.get("arrive_by", None if t.get("depart_at") else "09:00"),
-        depart_at=t.get("depart_at"),
-        day=str(t.get("day", "tuesday")).lower(),
+        api_key=t.get("api_key") or (os.environ.get("DIGITRANSIT_API_KEY") if env_api_key else None),
+        router=router,
+        arrive_by=arrive_by,
+        depart_at=depart_at,
+        day=day,
         requests_per_second=float(t.get("requests_per_second", 2.0)),
     )
     sources = [str(s).lower() for s in _as_list(raw.get("sources")) or ["oikotie", "etuovi"]]
@@ -117,13 +154,22 @@ def load_config(path: str | Path) -> Config:
     )
     if not 0 <= map_settings.green_factor < map_settings.red_factor:
         raise ValueError("map: need 0 <= green_factor < red_factor")
+    if map_settings.default_max_minutes <= 0 or map_settings.fade_km <= 0 or map_settings.idw_power <= 0:
+        raise ValueError("map: default_max_minutes, fade_km and idw_power must be positive")
+    max_listings = int(raw.get("max_listings", 500))
+    if not 1 <= max_listings <= 5000:
+        raise ValueError("max_listings must be between 1 and 5000")
     return Config(
         map=map_settings,
         filters=_parse_filters(raw.get("filters") or {}),
         destinations=destinations,
         sources=sources,
-        max_listings=int(raw.get("max_listings", 500)),
+        max_listings=max_listings,
         transit=transit,
         cache_path=Path(raw.get("cache_path", ".cache/househunt.sqlite")),
         output_dir=Path(raw.get("output_dir", "output")),
     )
+
+
+def load_config(path: str | Path) -> Config:
+    return config_from_dict(yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {})

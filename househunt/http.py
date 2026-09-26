@@ -1,7 +1,10 @@
+import logging
 import threading
 import time
 
 import httpx
+
+log = logging.getLogger(__name__)
 
 BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -29,15 +32,29 @@ class RateLimiter:
             time.sleep(delay)
 
 
+_limiters: dict[str, RateLimiter] = {}
+_limiters_lock = threading.Lock()
+
+
+def shared_limiter(name: str, per_second: float) -> RateLimiter:
+    """One limiter per external service for the whole process, so concurrent runs share the budget."""
+    with _limiters_lock:
+        if name not in _limiters:
+            _limiters[name] = RateLimiter(per_second)
+        return _limiters[name]
+
+
 def request_with_retry(send, attempts: int = 4) -> httpx.Response:
     for i in range(attempts):
         try:
             resp = send()
-        except httpx.TransportError:
+        except httpx.TransportError as e:
             if i == attempts - 1:
                 raise
+            log.info("Network error (%s), retrying in %ds", e.__class__.__name__, 2**i)
         else:
             if resp.status_code not in (429, 500, 502, 503, 504) or i == attempts - 1:
                 return resp
+            log.info("HTTP %d from %s, retrying in %ds", resp.status_code, resp.request.url.host, 2**i)
         time.sleep(2**i)
     raise RuntimeError("unreachable")

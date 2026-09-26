@@ -1,13 +1,15 @@
 import datetime as dt
 import logging
-from concurrent.futures import ThreadPoolExecutor
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from zoneinfo import ZoneInfo
 
 import httpx
 
 from .cache import Cache, coord_key
-from .config import TransitSettings
-from .http import TOOL_UA, RateLimiter, client, request_with_retry
+from .config import WEEKDAYS, TransitSettings
+from .http import TOOL_UA, client, request_with_retry, shared_limiter
+from .progress import Progress
 
 log = logging.getLogger(__name__)
 
@@ -15,7 +17,6 @@ OSRM = "https://router.project-osrm.org"
 OSRM_MAX_COORDS = 100
 DIGITRANSIT = "https://api.digitransit.fi/routing/v2/{router}/gtfs/v1"
 HELSINKI = ZoneInfo("Europe/Helsinki")
-WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
 Point = tuple[float, float]
 
@@ -24,17 +25,26 @@ class CarRouter:
     def __init__(self, cache: Cache, http: httpx.Client | None = None):
         self.cache = cache
         self.http = http or client(TOOL_UA)
-        self.limiter = RateLimiter(1.0)
+        self.limiter = shared_limiter("osrm", 1.0)
 
     @staticmethod
     def _key(o: Point, d: Point) -> str:
         return f"{coord_key(*o)}>{coord_key(*d)}"
 
-    def minutes(self, origins: list[Point], dests: list[Point]) -> dict[tuple[Point, Point], float | None]:
+    def minutes(
+        self, origins: list[Point], dests: list[Point], progress: Progress | None = None
+    ) -> dict[tuple[Point, Point], float | None]:
         missing = [o for o in dict.fromkeys(origins) if any(not self.cache.has("car", self._key(o, d)) for d in dests)]
         chunk = OSRM_MAX_COORDS - len(dests)
-        for i in range(0, len(missing), chunk):
-            self._fetch(missing[i : i + chunk], dests)
+        batches = [missing[i : i + chunk] for i in range(0, len(missing), chunk)]
+        if progress:
+            progress.start("car", len(batches))
+        for batch in batches:
+            if progress:
+                progress.check()
+            self._fetch(batch, dests)
+            if progress:
+                progress.advance()
         return {(o, d): self.cache.get("car", self._key(o, d)) for o in origins for d in dests}
 
     def _fetch(self, origins: list[Point], dests: list[Point]) -> None:
@@ -86,7 +96,9 @@ class TransitRouter:
         self.cache = cache
         self.http = http or client(TOOL_UA)
         self.http.headers["digitransit-subscription-key"] = settings.api_key
-        self.limiter = RateLimiter(settings.requests_per_second)
+        self.limiter = shared_limiter("digitransit", settings.requests_per_second)
+        self.fallbacks = 0
+        self._fallback_lock = threading.Lock()
         mode = "arrive" if settings.arrive_by else "depart"
         self.cache_ns = f"transit:{mode}:{settings.day}:{settings.arrive_by or settings.depart_at}"
 
@@ -118,12 +130,46 @@ class TransitRouter:
             return self.cache.get(self.cache_ns, key)
         result = self._query(self.settings.router, o, d)
         if result is None and self.settings.router != "finland":
+            with self._fallback_lock:
+                self.fallbacks += 1
             result = self._query("finland", o, d)
         self.cache.set(self.cache_ns, key, result)
         return result
 
-    def minutes(self, pairs: list[tuple[Point, Point]], workers: int = 4) -> dict[tuple[Point, Point], float | None]:
+    def is_cached(self, o: Point, d: Point) -> bool:
+        return self.cache.has(self.cache_ns, f"{coord_key(*o)}>{coord_key(*d)}")
+
+    def minutes(
+        self, pairs: list[tuple[Point, Point]], progress: Progress | None = None, workers: int = 4
+    ) -> dict[tuple[Point, Point], float | None]:
+        progress = progress or Progress()
         unique = list(dict.fromkeys(pairs))
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            results = list(pool.map(lambda p: self.minutes_one(*p), unique))
-        return dict(zip(unique, results))
+        cached = [p for p in unique if self.is_cached(*p)]
+        todo = [p for p in unique if not self.is_cached(*p)]
+        seconds = len(todo) / self.settings.requests_per_second
+        log.info(
+            "Transit: %d routes, %d cached, %d to query (~%d min at %.1f req/s)",
+            len(unique), len(cached), len(todo), round(seconds / 60), self.settings.requests_per_second,
+        )
+        progress.start("transit", len(unique))
+        results = {p: self.minutes_one(*p) for p in cached}
+        progress.advance(len(cached), cached=len(cached))
+
+        def work(pair):
+            progress.check()
+            return self.minutes_one(*pair)
+
+        pool = ThreadPoolExecutor(max_workers=workers)
+        try:
+            futures = {pool.submit(work, p): p for p in todo}
+            for fut in as_completed(futures):
+                results[futures[fut]] = fut.result()
+                progress.advance()
+        except BaseException:
+            progress.cancel.set()
+            pool.shutdown(wait=True, cancel_futures=True)
+            raise
+        pool.shutdown()
+        if self.fallbacks:
+            log.info("Transit: %d routes needed the nationwide 'finland' router", self.fallbacks)
+        return results

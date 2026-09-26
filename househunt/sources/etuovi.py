@@ -4,6 +4,7 @@ import httpx
 
 from ..http import client, request_with_retry
 from ..models import Filters, Listing
+from ..progress import Progress
 from . import matches, normalize_municipality
 
 BASE = "https://www.etuovi.com"
@@ -79,10 +80,14 @@ def parse_announcement(a: dict) -> Listing:
     )
 
 
-def fetch(f: Filters, max_listings: int, http: httpx.Client | None = None) -> Iterator[Listing]:
+def fetch(
+    f: Filters, max_listings: int, http: httpx.Client | None = None, progress: Progress | None = None
+) -> Iterator[Listing]:
     http = http or client()
     found = 0
     for page in range(MAX_PAGES):
+        if progress:
+            progress.check()
         body = build_body(f, page * PAGE_SIZE)
         resp = request_with_retry(
             lambda: http.post(f"{BASE}/api/v2/announcements/search/listpage", json=body, headers={"Accept": "application/json"})
@@ -96,5 +101,7 @@ def fetch(f: Filters, max_listings: int, http: httpx.Client | None = None) -> It
                 found += 1
                 if found >= max_listings:
                     return
+        if progress:
+            progress.advance(message=f"page {page + 1}, {found} listings")
         if len(announcements) < PAGE_SIZE:
             return

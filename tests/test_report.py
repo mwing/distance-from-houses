@@ -6,14 +6,14 @@ import pytest
 
 from househunt.models import Destination
 from househunt.pipeline import _within_limits
-from househunt.report import COLOR_JS
+from househunt.report import STATIC
 
 GREEN = [21, 193, 21]
 RED = [193, 21, 21]
 
 
 def tt_color(*calls):
-    script = COLOR_JS + f"console.log(JSON.stringify({json.dumps(calls)}.map(a => ttColor(...a))));"
+    script = (STATIC / "results.js").read_text(encoding="utf-8") + f"console.log(JSON.stringify({json.dumps(calls)}.map(a => ttColor(...a))));"
     out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout
     return json.loads(out)
 

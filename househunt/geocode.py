@@ -1,7 +1,7 @@
 import httpx
 
 from .cache import Cache, coord_key
-from .http import TOOL_UA, RateLimiter, client
+from .http import TOOL_UA, client, shared_limiter
 from .models import UUSIMAA_MUNICIPALITIES, Destination
 
 NOMINATIM = "https://nominatim.openstreetmap.org"
@@ -20,7 +20,7 @@ class Geocoder:
         self.cache = cache
         self.http = http or client(TOOL_UA)
         # Nominatim usage policy: at most 1 request per second.
-        self.limiter = RateLimiter(1.0)
+        self.limiter = shared_limiter("nominatim", 1.0)
 
     def _get(self, path: str, params: dict) -> list | dict:
         self.limiter.wait()
