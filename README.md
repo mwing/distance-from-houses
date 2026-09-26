@@ -10,8 +10,13 @@ them. Output: `output/listings.csv` and `output/listings.html` (sortable table +
 uv venv && uv pip install -r requirements.txt
 cp config.example.yaml config.yaml   # edit filters and destinations
 export DIGITRANSIT_API_KEY=...       # free: https://portal-api.digitransit.fi/
-.venv/bin/python -m househunt run -c config.yaml
+.venv/bin/python -m househunt run -c config.yaml --serve
 ```
+
+`--serve` opens the report at `http://localhost:8765/listings.html`. To reopen the
+latest report later: `.venv/bin/python -m househunt serve`. Opening the HTML file
+directly works for the table, but the OpenStreetMap tiles need a Referer that
+`file://` pages don't send, so the map stays blank.
 
 Without a Digitransit key only car times are computed.
 

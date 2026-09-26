@@ -61,7 +61,8 @@ TEMPLATE = """<!doctype html>
   header { padding: 12px 16px; }
   h1 { font-size: 18px; margin: 0; }
   #map { height: 45vh; }
-  #map .leaflet-tile-pane { filter: grayscale(.85) contrast(.95); }
+  #file-warning { margin: 0 16px 8px; padding: 8px 12px; background: #fff4e5; border: 1px solid #f0c36d; border-radius: 6px; }
+  [hidden] { display: none !important; }
   .wrap { overflow-x: auto; padding: 0 16px 24px; }
   table { border-collapse: collapse; width: 100%; background: #fff; }
   th, td { padding: 6px 8px; border-bottom: 1px solid #e5e5e5; text-align: left; white-space: nowrap; }
@@ -72,6 +73,7 @@ TEMPLATE = """<!doctype html>
   a { color: #0b57d0; }
 </style></head><body>
 <header><h1>househunt — __COUNT__ listings</h1></header>
+<div id="file-warning" hidden>Map tiles don't load from a local file. Open this report with <code>python -m househunt serve</code>.</div>
 <div id="map"></div>
 <div class="wrap"><table><thead></thead><tbody></tbody></table></div>
 <script>
@@ -79,10 +81,11 @@ const DATA = __DATA__;
 const cols = DATA.columns;
 let sortCol = "score", asc = true;
 const map = L.map("map");
-// No key and no Referer needed, so it loads from file://. OSM's tile server 403s without a Referer; CARTO now needs a key.
-L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+// tile.openstreetmap.org answers 403 to requests without a Referer, which file:// pages never send.
+if (location.protocol === "file:") document.getElementById("file-warning").hidden = false;
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
-  attribution: "Tiles &copy; Esri &mdash; Sources: Esri, HERE, Garmin, &copy; OpenStreetMap contributors"
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 }).addTo(map);
 const markers = {};
 const bounds = [];

@@ -46,11 +46,12 @@ unchecked box.
   (default next Tuesday 09:00).
 - SQLite cache for geocodes and routes, coordinates rounded to ~100 m.
 - Skip transit lookup when car time already exceeds that destination's transit limit.
-- Map tiles: Esri World Street Map, greyed with a CSS filter on the tile pane.
-  Loads from `file://` with no key. Rejected: `tile.openstreetmap.org` (403 without
-  a Referer), CARTO (now needs an API key; answers 200 with an "API KEY REQUIRED"
-  image, so check tile content, not status), Esri Light Gray (label layer empty
-  at street zooms).
+- Map tiles: OpenStreetMap, report served from `127.0.0.1` via
+  `python -m househunt serve` (or `run --serve`). OSM needs a Referer, which
+  `file://` never sends; the page shows a banner when opened as a file.
+  Rejected: CARTO (needs an API key; answers 200 with an "API KEY REQUIRED"
+  image, so check tile content, not status), Esri Light Gray (label layer
+  empty at street zooms), Esri Street Map (works, but OSM looks better).
 
 ## Tasks
 
@@ -74,6 +75,7 @@ unchecked box.
 - [x] Ranking score (weighted minutes) + max-minute filters
 - [x] Output: CSV + static HTML report (sortable table, map)
 - [x] CLI `python -m househunt run -c config.yaml`
+- [x] `serve` command / `run --serve`: local HTTP server so OSM tiles load
 - [x] Unit tests for parsers / filter mapping (recorded fixtures)
 - [x] End-to-end run against live APIs (car only)
 - [ ] End-to-end run with Digitransit key
