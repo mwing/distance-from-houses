@@ -20,12 +20,21 @@ class TransitSettings:
 
 
 @dataclass
+class MapSettings:
+    red_factor: float = 2.0
+    default_max_minutes: float = 45.0
+    fade_km: float = 3.0
+    idw_power: float = 2.0
+
+
+@dataclass
 class Config:
     filters: Filters
     destinations: list[Destination]
     sources: list[str] = field(default_factory=lambda: ["oikotie", "etuovi"])
     max_listings: int = 500
     transit: TransitSettings = field(default_factory=TransitSettings)
+    map: MapSettings = field(default_factory=MapSettings)
     cache_path: Path = Path(".cache/househunt.sqlite")
     output_dir: Path = Path("output")
 
@@ -97,7 +106,17 @@ def load_config(path: str | Path) -> Config:
     bad = set(sources) - {"oikotie", "etuovi"}
     if bad:
         raise ValueError(f"Unknown sources {sorted(bad)}")
+    m = raw.get("map") or {}
+    map_settings = MapSettings(
+        red_factor=float(m.get("red_factor", 2.0)),
+        default_max_minutes=float(m.get("default_max_minutes", 45.0)),
+        fade_km=float(m.get("fade_km", 3.0)),
+        idw_power=float(m.get("idw_power", 2.0)),
+    )
+    if map_settings.red_factor <= 1:
+        raise ValueError("map.red_factor must be greater than 1")
     return Config(
+        map=map_settings,
         filters=_parse_filters(raw.get("filters") or {}),
         destinations=destinations,
         sources=sources,

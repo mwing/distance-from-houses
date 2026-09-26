@@ -33,4 +33,11 @@ transit:
   day: tuesday           # next occurrence of this weekday
   requests_per_second: 2
 
+map:
+  # Colours: green up to a destination's max_minutes, red at max_minutes × red_factor.
+  red_factor: 2
+  default_max_minutes: 45   # for destinations/modes without max_minutes
+  fade_km: 3                # colour fades out this far from the nearest house
+  idw_power: 2              # higher = nearer houses dominate the interpolation
+
 output_dir: output

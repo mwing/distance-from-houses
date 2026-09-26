@@ -119,17 +119,25 @@ Design:
   under it.
 
 Tasks:
-- [ ] Log each house's travel times per destination × mode (INFO line per
-      house: address, municipality, minutes) so they're visible outside the report
-- [ ] Config: `map:` section — `red_factor`, `default_max_minutes`,
+- [x] Log each house's travel times per destination × mode (DEBUG, shown with `-v`;
+      at INFO it drowned the run output with hundreds of lines)
+- [x] Config: `map:` section — `red_factor`, `default_max_minutes`,
       `fade_km`, `idw_power`
-- [ ] Colour function: minutes + limit → green→yellow→red, grey for none;
+- [x] Colour function: minutes + limit → green→yellow→red, grey for none;
       unit tests for boundary values (at limit = green, ≥ limit × red_factor = red)
-- [ ] HTML: IDW canvas layer beneath the house markers
-- [ ] HTML: selector for destination × mode that recolours layer and markers
-- [ ] HTML: legend showing the scale with the actual minute values
-- [ ] Markers coloured with the same scale; popup unchanged
-- [ ] End-to-end run and visual check of the map (car only, then with transit)
+- [x] HTML: IDW canvas layer beneath the house markers
+- [x] HTML: selector for destination × mode that recolours layer and markers
+- [x] HTML: legend showing the scale with the actual minute values
+- [x] Markers coloured with the same scale; popup unchanged
+- [x] Over-limit houses kept (flagged `within_limits: false`) so the colour layer
+      has red data; hidden from table/markers unless "Show houses over the limit"
+- [x] Drop listings with coordinates outside the Uusimaa bbox (seen on both sites
+      for one Mäntsälä listing placed near Mikkeli); transit eligibility by bbox,
+      not municipality name (Etuovi gives villages like "Nummela")
+- [x] End-to-end run and visual check of the map, car only (headless Chrome screenshot)
+- [ ] Visual check with transit times
+- [ ] Municipality filter misses village names from Etuovi ("Nummela" for Vihti);
+      map villages → municipality or filter by postcode
 
 ### Later / ideas
 - [ ] More data points for the colour layer: extra sample points in sparse

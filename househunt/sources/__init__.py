@@ -15,6 +15,11 @@ def parse_number(text) -> float | None:
     return float(re.sub(r"[\s ]", "", m.group(0)).replace(",", "."))
 
 
+def normalize_municipality(name: str) -> str:
+    name = name.strip()
+    return name.capitalize() if name.isupper() else name
+
+
 def matches(listing: Listing, f: Filters) -> bool:
     if f.municipalities and listing.municipality.lower() not in f.municipalities:
         return False

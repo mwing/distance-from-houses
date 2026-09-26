@@ -6,7 +6,7 @@ import httpx
 
 from ..http import client, request_with_retry
 from ..models import Filters, Listing
-from . import matches, parse_number
+from . import matches, normalize_municipality, parse_number
 
 BASE = "https://asunnot.oikotie.fi"
 UUSIMAA = [[2, 7, "Uusimaa"]]
@@ -75,7 +75,7 @@ def parse_card(card: dict) -> Listing:
         id=str(card["cardId"]),
         url=card.get("url") or f"{BASE}/myytavat-asunnot/{card['cardId']}",
         address=loc.get("address") or "",
-        municipality=loc.get("city") or "",
+        municipality=normalize_municipality(loc.get("city") or ""),
         lat=loc.get("latitude"),
         lon=loc.get("longitude"),
         price=parse_number(data.get("price")),

@@ -4,7 +4,7 @@ import httpx
 
 from ..http import client, request_with_retry
 from ..models import Filters, Listing
-from . import matches
+from . import matches, normalize_municipality
 
 BASE = "https://www.etuovi.com"
 PAGE_SIZE = 100
@@ -67,7 +67,7 @@ def parse_announcement(a: dict) -> Listing:
         id=str(a["friendlyId"]),
         url=f"{BASE}/kohde/{a['friendlyId']}",
         address=a.get("addressLine1") or "",
-        municipality=area_parts[-1] if area_parts else "",
+        municipality=normalize_municipality(area_parts[-1] if area_parts else ""),
         lat=a.get("latitude"),
         lon=a.get("longitude"),
         price=a.get("searchPrice"),

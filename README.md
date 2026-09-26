@@ -30,6 +30,13 @@ Without a Digitransit key only car times are computed.
 - `max_listings`: cap per source.
 - `transit`: `arrive_by` or `depart_at`, `day` (next occurrence of that weekday).
 
+The map colours the area around the houses by travel time to the destination and
+mode picked in "Colour by": green up to that destination's `max_minutes`
+(or `map.default_max_minutes`), red at `max_minutes × map.red_factor`. The layer is
+interpolated from the houses' own times, so it only covers areas near listings.
+Houses over a `max_minutes` limit are hidden unless "Show houses over the limit" is
+ticked, but still feed the colours.
+
 `score` is the weighted sum of minutes to each destination, using the first mode
 in that destination's `modes` that has a time. Lower is better.
 

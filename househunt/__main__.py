@@ -35,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
         csv_path = cfg.output_dir / "listings.csv"
         write_csv(results, cfg.destinations, csv_path)
-        write_html(results, cfg.destinations, html_path)
+        write_html(results, cfg.destinations, cfg.map, html_path)
         print(f"{len(results)} listings -> {csv_path}, {html_path}")
         if not args.serve:
             return 0

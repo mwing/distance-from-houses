@@ -21,6 +21,10 @@ UUSIMAA_MUNICIPALITIES = frozenset(
     }
 )
 
+# Generous box around Uusimaa. Both sources are queried for Uusimaa only, so a listing
+# outside it has bad coordinates.
+UUSIMAA_BBOX = (59.7, 22.7, 60.95, 26.7)
+
 
 @dataclass
 class Filters:
@@ -53,7 +57,10 @@ class Listing:
 
     @property
     def in_uusimaa(self) -> bool:
-        return self.municipality.lower() in UUSIMAA_MUNICIPALITIES
+        if self.lat is None or self.lon is None:
+            return False
+        south, west, north, east = UUSIMAA_BBOX
+        return south <= self.lat <= north and west <= self.lon <= east
 
 
 @dataclass

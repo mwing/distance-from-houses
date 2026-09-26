@@ -31,9 +31,14 @@ def fetch_listings(cfg: Config) -> list[Listing]:
             continue
         log.info("%s: %d listings", source, len(got))
         listings.extend(got)
-    with_coords = [l for l in listings if l.lat is not None and l.lon is not None]
-    if len(with_coords) < len(listings):
-        log.info("Skipping %d listings without coordinates", len(listings) - len(with_coords))
+    with_coords = []
+    for l in listings:
+        if l.lat is None or l.lon is None:
+            log.info("Skipping %s, %s (%s): no coordinates", l.address, l.municipality, l.url)
+        elif not l.in_uusimaa:
+            log.warning("Skipping %s, %s (%s): coordinates %.4f,%.4f are outside Uusimaa", l.address, l.municipality, l.url, l.lat, l.lon)
+        else:
+            with_coords.append(l)
     unique = dedupe(with_coords)
     log.info("%d unique listings after merging sources", len(unique))
     return unique
@@ -53,9 +58,20 @@ def _within_limits(times: dict[str, dict[str, float | None]], dests: list[Destin
     for d in dests:
         for mode, limit in d.max_minutes.items():
             value = times[d.name].get(mode)
+            if value is None and mode == "transit":
+                value = times[d.name].get("transit_at_least")
             if value is not None and value > limit:
                 return False
     return True
+
+
+def _format_times(times: dict[str, dict[str, float | None]], dests: list[Destination]) -> str:
+    parts = []
+    for d in dests:
+        t = times[d.name]
+        transit = t["transit"] if t["transit"] is not None else (f">{t['transit_at_least']}" if t.get("transit_at_least") else "-")
+        parts.append(f"{d.name} transit {transit} / car {t['car'] if t['car'] is not None else '-'} min")
+    return "; ".join(parts)
 
 
 def run(cfg: Config) -> list[Result]:
@@ -87,16 +103,14 @@ def run(cfg: Config) -> list[Result]:
     if transit_router:
         pairs = []
         for r in results:
-            if not r.listing.in_uusimaa:
-                continue
             for d in dests:
                 if "transit" not in d.modes or not d.in_uusimaa:
                     continue
                 limit = d.max_minutes.get("transit")
                 car_min = r.times[d.name]["car"]
-                # Free-flow driving is nearly always faster than transit, so it prunes hopeless pairs.
+                # Free-flow driving is nearly always faster than transit, so the car time is a lower bound.
                 if limit is not None and car_min is not None and car_min > limit:
-                    r.too_far = True
+                    r.times[d.name]["transit_at_least"] = car_min
                     continue
                 pairs.append((r, d))
         log.info("Querying %d transit routes (cached ones are free)", len(pairs))
@@ -104,12 +118,10 @@ def run(cfg: Config) -> list[Result]:
         for r, d in pairs:
             r.times[d.name]["transit"] = transit[(points[r.listing.id], (d.lat, d.lon))]
 
-    kept = []
     for r in results:
-        if r.too_far or not _within_limits(r.times, dests):
-            continue
         r.score = _score(r.times, dests)
-        kept.append(r)
-    kept.sort(key=lambda r: (r.score is None, r.score or 0))
-    log.info("%d listings within travel limits", len(kept))
-    return kept
+        r.too_far = not _within_limits(r.times, dests)
+        log.debug("%s, %s: %s", r.listing.address, r.listing.municipality, _format_times(r.times, dests))
+    results.sort(key=lambda r: (r.too_far, r.score is None, r.score or 0))
+    log.info("%d listings, %d within travel limits", len(results), sum(not r.too_far for r in results))
+    return results
