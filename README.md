@@ -2,12 +2,50 @@
 
 Fetches homes for sale in Uusimaa from Etuovi and Oikotie, computes travel times
 to your destinations by public transport (Digitransit) and car (OSRM), and ranks
-them. Output: `output/listings.csv` and `output/listings.html` (sortable table + map).
+them on a map. Runs as a web app (settings, runs and results in the browser) or
+as a command-line tool that writes `output/listings.csv` and `output/listings.html`.
 
-## Setup
+## Web app
+
+```sh
+cp .env.example .env                 # set HOUSEHUNT_PASSWORD and DIGITRANSIT_API_KEY
+cp compose.example.yaml compose.yaml
+docker compose up -d --build         # listens on 127.0.0.1:8000
+```
+
+Put it behind your reverse proxy with TLS; the session cookie is marked `Secure`
+when the proxy sends `X-Forwarded-Proto: https`. Data (saved searches, results,
+listing history, route cache) lives in the `/data` volume.
+
+Without Docker:
 
 ```sh
 uv venv && uv pip install -r requirements.txt
+HOUSEHUNT_PASSWORD=... DIGITRANSIT_API_KEY=... .venv/bin/python -m househunt web --data-dir data
+.venv/bin/python -m househunt web --no-auth   # local only, 127.0.0.1
+```
+
+Environment:
+
+| Variable | Meaning |
+|---|---|
+| `HOUSEHUNT_PASSWORD` / `HOUSEHUNT_PASSWORD_FILE` | Sign-in password (required unless `--no-auth`) |
+| `DIGITRANSIT_API_KEY` | Public transport routing; without it only car times |
+| `HOUSEHUNT_DIGITRANSIT_RPS` | Digitransit requests per second (default 2) |
+| `HOUSEHUNT_DATA_DIR`, `HOUSEHUNT_HOST`, `HOUSEHUNT_PORT` | Defaults `data`, `127.0.0.1`, `8000` |
+| `HOUSEHUNT_TRUSTED_PROXIES` | Proxy addresses allowed to set forwarded headers |
+
+In the app: create a search (filters, destinations with address search, transit
+time, map colours, optional daily refresh), press **Run now**, and follow the
+progress. Runs happen one at a time on the server and keep going if the page is
+closed. Each run records when a listing was first seen and its price changes;
+the table and popups show **new** and **price −/+** badges. Import an existing
+YAML config with `python -m househunt web --import-config config.yaml`.
+
+## Command line
+
+```sh
+uv venv && uv pip install -r requirements-dev.txt
 cp config.example.yaml config.yaml   # edit filters and destinations
 export DIGITRANSIT_API_KEY=...       # free: https://portal-api.digitransit.fi/
 .venv/bin/python -m househunt run -c config.yaml --serve
@@ -18,7 +56,8 @@ latest report later: `.venv/bin/python -m househunt serve`. Opening the HTML fil
 directly works for the table, but the OpenStreetMap tiles need a Referer that
 `file://` pages don't send, so the map stays blank.
 
-Without a Digitransit key only car times are computed.
+Without a Digitransit key only car times are computed. A progress bar shows on
+the terminal; Ctrl-C stops the run, and finished routes stay cached.
 
 ## Config
 
@@ -60,4 +99,6 @@ in that destination's `modes` that has a time. Lower is better.
 - Car times are free-flow (no rush-hour traffic).
 - Etuovi and Oikotie are queried through their undocumented website APIs; they
   may change without notice. Keep `max_listings` modest.
-- Results are cached in `.cache/househunt.sqlite`; delete it to recompute.
+- Routes are cached in `.cache/househunt.sqlite` (CLI) or `data/cache.sqlite`
+  (web); delete it to recompute.
+- Tests: `.venv/bin/python -m pytest`.

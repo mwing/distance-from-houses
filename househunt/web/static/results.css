@@ -1,7 +1,8 @@
 .hh-controls { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; padding: 8px 0; }
+.hh-controls > * { min-width: 0; max-width: 100%; }
 .hh-combine { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; }
 .hh-map { height: 55vh; min-height: 320px; border-radius: 8px; }
-.hh-table-wrap { overflow-x: auto; margin-top: 12px; }
+.hh-table-wrap { overflow-x: auto; margin-top: 12px; max-width: 100%; overflow-wrap: normal; }
 .hh-table-wrap table { border-collapse: collapse; width: 100%; background: var(--surface, #fff); }
 .hh-table-wrap th, .hh-table-wrap td { padding: 6px 8px; border-bottom: 1px solid var(--line, #e5e5e5); text-align: left; white-space: nowrap; }
 .hh-table-wrap th { cursor: pointer; position: sticky; top: 0; background: var(--surface-2, #f0f0f0); user-select: none; }

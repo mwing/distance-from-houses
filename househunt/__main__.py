@@ -44,8 +44,10 @@ def main(argv: list[str] | None = None) -> int:
     html_path = cfg.output_dir / "listings.html"
 
     if args.command == "run":
+        bar = TerminalProgress()
+        bar.install_log_handler()
         try:
-            results = run(cfg, Progress(TerminalProgress()))
+            results = run(cfg, Progress(bar))
         except (KeyboardInterrupt, Cancelled):
             print("\nInterrupted. Finished routes are cached; the next run continues from there.", file=sys.stderr)
             return 130

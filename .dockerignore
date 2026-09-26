@@ -1,0 +1,10 @@
+.venv
+.git
+.cache
+output
+data
+tests
+*.md
+config.yaml
+.env
+**/__pycache__

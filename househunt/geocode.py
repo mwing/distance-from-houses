@@ -48,3 +48,19 @@ class Geocoder:
                 self.cache.set("reverse", key, hit)
         dest.lat, dest.lon, dest.in_uusimaa = hit["lat"], hit["lon"], hit["uusimaa"]
         return dest
+
+    def search(self, query: str, limit: int = 5) -> list[dict]:
+        key = f"{limit}:{query.strip().lower()}"
+        hit = self.cache.get("search", key)
+        if hit is None:
+            hit = [
+                {
+                    "label": r.get("display_name", ""),
+                    "lat": float(r["lat"]),
+                    "lon": float(r["lon"]),
+                    "uusimaa": _is_uusimaa(r.get("address") or {}),
+                }
+                for r in self._get("search", {"q": query, "limit": limit, "countrycodes": "fi"})
+            ]
+            self.cache.set("search", key, hit)
+        return hit

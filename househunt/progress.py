@@ -1,3 +1,4 @@
+import logging
 import sys
 import threading
 import time
@@ -49,7 +50,7 @@ class Progress:
         with self._lock:
             elapsed = time.monotonic() - self._started
             fetched = self.done - self.cached
-            rate = fetched / elapsed if elapsed > 0 and fetched > 0 else None
+            rate = fetched / elapsed if elapsed >= 1 and fetched > 0 else None
             remaining = self.total - self.done if self.total else None
             eta = remaining / rate if rate and remaining else None
             return {
@@ -82,28 +83,62 @@ class TerminalProgress:
         self.enabled = stream.isatty()
         self._last = 0.0
         self._phase = None
+        self._line = ""
+        self._latest: dict | None = None
+
+    def clear(self) -> None:
+        if self.enabled and self._line:
+            self.stream.write("\r\033[K")
+
+    def redraw(self) -> None:
+        if self.enabled and self._line:
+            self.stream.write("\r\033[K" + self._line)
+            self.stream.flush()
+
+    def install_log_handler(self) -> None:
+        """Route log records around the bar so they don't land mid-line."""
+        root = logging.getLogger()
+        for h in root.handlers:
+            if isinstance(h, logging.StreamHandler) and getattr(h, "stream", None) is self.stream:
+                h.emit = self._wrap_emit(h.emit)
+
+    def _wrap_emit(self, emit):
+        def wrapped(record):
+            self.clear()
+            emit(record)
+            self.redraw()
+        return wrapped
+
+    @staticmethod
+    def _render(snap: dict) -> str:
+        if not snap["total"]:
+            return f"{snap['phase']:<16} {snap['message']}"
+        width = 24
+        filled = int(width * snap["done"] / snap["total"])
+        bar = "#" * filled + "-" * (width - filled)
+        cached = f", {snap['cached']} cached" if snap["cached"] else ""
+        rate = f" {snap['rate']}/s" if snap["rate"] else ""
+        return f"{snap['phase']:<16} [{bar}] {snap['done']}/{snap['total']}{cached}{rate}{_fmt_eta(snap['eta_seconds'])}"
 
     def __call__(self, snap: dict) -> None:
         if not self.enabled:
             return
-        now = time.monotonic()
-        finished = snap["total"] and snap["done"] >= snap["total"]
-        if snap["phase"] == self._phase and not finished and now - self._last < 0.2:
-            return
         if self._phase and snap["phase"] != self._phase:
-            self.stream.write("\n")
+            if self._latest and self._latest.get("message") or self._latest and self._latest["total"]:
+                self.stream.write("\r\033[K" + self._render(self._latest) + "\n")
+            else:
+                self.clear()
+            self._phase, self._line = None, ""
+        self._latest = snap
+        if snap["phase"] == "done":
+            self.clear()
+            self._line = ""
+            self.stream.flush()
+            return
+        now = time.monotonic()
+        if snap["phase"] == self._phase and now - self._last < 0.2:
+            return
         self._phase, self._last = snap["phase"], now
-        if snap["total"]:
-            width = 24
-            filled = int(width * snap["done"] / snap["total"])
-            bar = "#" * filled + "-" * (width - filled)
-            cached = f", {snap['cached']} cached" if snap["cached"] else ""
-            rate = f" {snap['rate']}/s" if snap["rate"] else ""
-            line = f"{snap['phase']:<16} [{bar}] {snap['done']}/{snap['total']}{cached}{rate}{_fmt_eta(snap['eta_seconds'])}"
-        else:
-            line = f"{snap['phase']:<16} {snap['message']}"
-        self.stream.write("\r\033[K" + line)
-        if finished:
-            self.stream.write("\n")
-            self._phase = None
+        self._line = self._render(snap)
+        self.stream.write("\r\033[K" + self._line)
         self.stream.flush()

@@ -86,14 +86,14 @@ Observed: a run sat on "Querying 666 transit routes" with no output. At the
 default 2 req/s that is ~6 min, up to ~11 min when the `hsl` router finds nothing
 and the `finland` fallback runs too, plus retry backoff on 429/5xx.
 
-- [ ] Progress bar for transit queries (done / total, rate, ETA), on stderr;
+- [x] Progress bar for transit queries (done / total, rate, ETA), on stderr;
       `tqdm` or a small built-in counter. Count cache hits separately.
-- [ ] Progress for listing fetch (pages per source) and car table batches
-- [ ] Log an up-front estimate: uncached pairs, expected duration at the
+- [x] Progress for listing fetch (pages per source) and car table batches
+- [x] Log an up-front estimate: uncached pairs, expected duration at the
       configured `requests_per_second`
-- [ ] Log retries/backoff (429, 5xx) and fallback-router usage at INFO so a slow
+- [x] Log retries/backoff (429, 5xx) and fallback-router usage at INFO so a slow
       run is distinguishable from a hung one
-- [ ] Ctrl-C keeps finished results: cache is already written per route; make
+- [x] Ctrl-C keeps finished results: cache is already written per route; make
       sure an interrupted run exits cleanly and the next run resumes from cache
 
 ### Travel-time map
@@ -187,6 +187,8 @@ API sketch:
 - `GET /api/profiles/{id}/results` — the JSON the report's `DATA` holds today
   (rows, dests, columns, map settings) + listing history badges
 - `GET /api/profiles/{id}/results.csv`
+- Progress is polled (`GET /api/runs/{id}` every 1.5 s); the SSE endpoint was
+  dropped as unnecessary for one-at-a-time runs.
 
 Open questions for the user (answer before the deploy tasks):
 - [ ] Server: OS, Docker available? Existing reverse proxy (nginx/Caddy/Traefik)?
@@ -194,28 +196,33 @@ Open questions for the user (answer before the deploy tasks):
 - [ ] Public domain or LAN/VPN only?
 
 Tasks:
-- [ ] Split `pipeline.run` into steps with a progress callback (fetch pages,
+- [x] Split `pipeline.run` into steps with a progress callback (fetch pages,
       car batches, transit pairs) and cancellation
-- [ ] Settings model shared by YAML loader and API (pydantic), with the same
+- [x] Settings model shared by YAML loader and API (`config_from_dict`, not pydantic), with the same
       validation as `config.py`
-- [ ] SQLite schema: profiles, runs, listings (per profile, history), keep the
+- [x] SQLite schema: profiles, runs, listings (per profile, history), keep the
       existing kv route cache; data dir from env
-- [ ] FastAPI app: profiles CRUD, geocode, runs (background thread worker),
+- [x] FastAPI app: profiles CRUD, geocode, runs (background thread worker),
       results JSON/CSV; serve static frontend
-- [ ] Global per-service rate limiters shared by all jobs
-- [ ] Auth: password → signed session cookie; all `/api` routes protected
-- [ ] Frontend: profile list + settings form (house types, rooms, plot, price,
+- [x] Global per-service rate limiters shared by all jobs
+- [x] Auth: password → signed session cookie; all `/api` routes protected
+- [x] Frontend: profile list + settings form (house types, rooms, plot, price,
       size, municipalities; destinations with geocode search, modes, weight,
       max minutes; transit arrive/depart time and day; map factors)
-- [ ] Frontend: run button, progress bar with ETA, cancel
-- [ ] Frontend: results view — move the report's map/table JS into a module
+- [x] Frontend: run button, progress bar with ETA, cancel
+- [x] Frontend: results view — move the report's map/table JS into a module
       that renders from `/results` (static report export keeps using it)
-- [ ] Listing history: first/last seen, price changes, badges in table and popup
-- [ ] Scheduled daily refresh per profile (in-process scheduler)
-- [ ] CLI: `househunt web` to start the server; `run` keeps working
-- [ ] Tests: API (profiles, run lifecycle with stubbed sources/routers), auth
-- [ ] Dockerfile + compose example (volume for data dir, env for key/password)
+- [x] Listing history: first/last seen, price changes, badges in table and popup
+- [x] Scheduled daily refresh per profile (in-process scheduler)
+- [x] CLI: `househunt web` to start the server; `run` keeps working
+- [x] Tests: API (profiles, run lifecycle with stubbed sources/routers), auth
+- [x] Dockerfile + compose example (volume for data dir, env for key/password)
+- [x] Local checks: live run through the API (car only), headless-Chrome
+      screenshots of all views (phone check at 500 px: headless Chrome on macOS
+      won't lay out narrower), container smoke test (auth 401/200, static)
 - [ ] Deploy to the user's server behind their reverse proxy; smoke test on phone
+- [ ] Nominatim policy forbids autocomplete: address search stays behind the Find
+      button; keep it that way if the form is reworked
 
 ### Later / ideas
 - [ ] More data points for the colour layer: extra sample points in sparse

@@ -214,6 +214,7 @@ function renderResults(container, DATA, opts = {}) {
     $("tbody").innerHTML = rows.map(([r, i]) => `<tr data-i="${i}"${r.within_limits ? "" : ' class="far"'}>` + cols.map(c => {
       const v = r[c];
       if (c === "address") return `<td>${badgeHtml(r)}${hhEsc(v)}</td>`;
+      if (c === "build_year") return `<td class="num">${hhEsc(v)}</td>`;
       return typeof v === "number" ? `<td class="num">${v.toLocaleString("fi-FI")}</td>` : `<td>${hhEsc(v)}</td>`;
     }).join("") + `<td><a href="${hhEsc(hhSafeUrl(r.url))}" target="_blank" rel="noopener">${hhEsc(r.source)}</a>${r.other_urls ? ` <a href="${hhEsc(hhSafeUrl(r.other_urls.split(" ")[0]))}" target="_blank" rel="noopener">+1</a>` : ""}</td></tr>`).join("");
   }

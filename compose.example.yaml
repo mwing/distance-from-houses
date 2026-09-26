@@ -1,0 +1,16 @@
+services:
+  househunt:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Your reverse proxy's address as seen from the container, or "*" if the
+      # port below is only reachable by the proxy.
+      HOUSEHUNT_TRUSTED_PROXIES: "*"
+    volumes:
+      - househunt-data:/data
+    ports:
+      - "127.0.0.1:8000:8000"
+
+volumes:
+  househunt-data:
