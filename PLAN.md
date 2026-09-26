@@ -81,37 +81,37 @@ limit set in config, shading through yellow/orange to red in areas that are
 too far.
 
 Design:
-- Colour layer = regular grid of sample points (default 1 km cells) over the
-  bounding box of the listings + destinations, padded ~5 km, clipped to Uusimaa.
-- Each cell stores travel minutes per destination × mode (car via OSRM table,
-  transit via Digitransit), cached like listing routes.
+- No extra routing: the colour layer is interpolated from the travel times
+  already computed for the houses that match the filters. Adequate for now;
+  refine later with more data points.
+- Interpolation in the browser: inverse-distance weighting (IDW) over the
+  houses' minutes per destination × mode, drawn on a canvas layer. Fade out
+  beyond ~3 km from the nearest house so empty areas aren't coloured from
+  far-off data.
 - Colour scale per destination × mode: green at ≤ `max_minutes`, then a gradient
   to red at `max_minutes × red_factor` (default 2) and above. Destinations
-  without `max_minutes` use a `map.default_max_minutes` fallback (e.g. 45).
-- Grey cells for "no route" (sea, no transit connection).
-- Markers keep the same colour scale as a ring/fill, so a house reads the same
-  as the area under it.
+  without `max_minutes` use `map.default_max_minutes` (e.g. 45).
+- Houses with no time for the selected mode (no route, outside Uusimaa for
+  transit) are grey and left out of the interpolation.
+- Markers use the same colour scale, so a house reads the same as the area
+  under it.
 
 Tasks:
-- [ ] Config: `map:` section — `cell_km`, `padding_km`, `red_factor`,
-      `default_max_minutes`, `enabled`
-- [ ] Grid generator: cells over padded bbox, drop cells outside Uusimaa
-      (simplified Uusimaa polygon bundled as GeoJSON) and on water
-- [ ] Car times for grid cells (batched OSRM table, cached)
-- [ ] Transit times for grid cells (rate-limited, cached; log estimated request
-      count and duration before starting; `--no-transit-grid` to skip)
+- [ ] Log each house's travel times per destination × mode (INFO line per
+      house: address, municipality, minutes) so they're visible outside the report
+- [ ] Config: `map:` section — `red_factor`, `default_max_minutes`,
+      `fade_km`, `idw_power`
 - [ ] Colour function: minutes + limit → green→yellow→red, grey for none;
       unit tests for boundary values (at limit = green, ≥ limit × red_factor = red)
-- [ ] HTML: grid as semi-transparent Leaflet rectangles (or a canvas layer)
-      beneath the house markers
-- [ ] HTML: selector for destination × mode that recolours grid and markers
+- [ ] HTML: IDW canvas layer beneath the house markers
+- [ ] HTML: selector for destination × mode that recolours layer and markers
 - [ ] HTML: legend showing the scale with the actual minute values
 - [ ] Markers coloured with the same scale; popup unchanged
-- [ ] Check request volume on a real config (cells × destinations) and tune the
-      default `cell_km` so a first run stays within Digitransit's fair use
 - [ ] End-to-end run and visual check of the map (car only, then with transit)
 
 ### Later / ideas
+- [ ] More data points for the colour layer: extra sample points in sparse
+      areas (grid cells with no house nearby), routed and cached like houses
 - [ ] Rentals (Oikotie `cardType=101`, Vuokraovi)
 - [ ] Incremental runs: only route new listings, flag new / price-changed
 - [ ] Self-hosted OSRM/OTP if public servers become limiting
