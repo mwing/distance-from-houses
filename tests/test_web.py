@@ -288,3 +288,27 @@ def test_csv_neutralises_formulas():
     payload = {"rows": [{"address": "=HYPERLINK(\"x\")", "price_eur": -5, "times": {}, "badges": []}]}
     text = csv_text(payload)
     assert "'=HYPERLINK" in text and ",-5" in text
+
+
+def test_shutdown_marks_run_interrupted_and_scheduler_retries_once(env, monkeypatch):
+    client, app, _ = env
+    login(client)
+    p = create(client, refresh_daily=True, refresh_at="06:00")
+    jobs, store = app.state.jobs, app.state.store
+    later = dt.datetime(2026, 9, 28, 6, 1, tzinfo=HELSINKI)
+    monkeypatch.setattr(web_store, "now_iso", lambda: later.isoformat())
+
+    def stopped(cfg, progress):
+        jobs.stop()
+        progress.check()
+
+    monkeypatch.setattr(web_jobs, "run_pipeline", stopped)
+    for expected_retry in (True, True, False):
+        jobs._stop.clear()
+        started = jobs.schedule_due(later)
+        assert bool(started) is expected_retry
+        if started:
+            jobs._execute(store.get_run(started[0]))
+            assert store.get_run(started[0])["status"] == "interrupted"
+    jobs._stop.clear()
+    assert jobs.schedule_due(later) == []

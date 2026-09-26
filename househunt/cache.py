@@ -8,7 +8,7 @@ class Cache:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path, check_same_thread=False, timeout=30)
-        # The web app's geocode endpoint and the run worker open separate connections to this file.
+        # The geocode endpoint and the run worker write this file on separate connections; without WAL they block each other.
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("CREATE TABLE IF NOT EXISTS kv (ns TEXT, key TEXT, value TEXT, PRIMARY KEY (ns, key))")
         self._lock = threading.Lock()

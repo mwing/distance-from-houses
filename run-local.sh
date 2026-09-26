@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Runs the web app in Docker exactly as on the server: same image, env file, data volume.
+# The server's Docker image and env file on localhost, with a separate data volume.
 set -euo pipefail
+ORIG_PWD=$PWD
 cd "$(dirname "$0")"
 
 PROJECT=househunt-local
@@ -38,8 +39,10 @@ ensure_env() {
 }
 
 banner() {
+  local addr
+  addr=$(compose port househunt 8000 2>/dev/null || true)
   echo
-  echo "househunt: http://localhost:8000  (password: HOUSEHUNT_PASSWORD in .env)"
+  echo "househunt: http://${addr:-localhost:8000}  (password: HOUSEHUNT_PASSWORD in .env)"
   echo
 }
 
@@ -60,10 +63,12 @@ case "${1:-}" in
     compose logs -f
     ;;
   import)
-    [ -n "${2:-}" ] && [ -f "$2" ] || { echo "import needs a YAML file" >&2; exit 2; }
+    [ -n "${2:-}" ] || { echo "import needs a YAML file" >&2; exit 2; }
+    src=$(cd "$ORIG_PWD" && cd "$(dirname "$2")" 2>/dev/null && pwd)/$(basename "$2") || true
+    [ -f "$src" ] || { echo "No such file: $2" >&2; exit 2; }
     ensure_env
-    name=$(basename "$2")
-    compose run --rm -v "$(cd "$(dirname "$2")" && pwd)/$name:/imports/$name:ro" \
+    name=$(basename "$src")
+    compose run --rm -v "$src:/imports/$name:ro" \
       househunt python -m househunt web --import-config "/imports/$name"
     ;;
   reset)

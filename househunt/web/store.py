@@ -222,6 +222,14 @@ class Store:
         )
         return row["t"] if row else None
 
+    def interrupted_scheduled_since(self, profile_id: int, since_iso: str) -> int:
+        rows = self._all(
+            "SELECT created_at FROM runs WHERE profile_id = ? AND trigger = 'scheduled' AND status = 'interrupted'",
+            (profile_id,),
+        )
+        since = dt.datetime.fromisoformat(since_iso)
+        return sum(1 for r in rows if dt.datetime.fromisoformat(r["created_at"]) >= since)
+
     def apply_history(self, profile_id: int, payload: dict, now: dt.datetime | None = None) -> None:
         """Mutates payload: adds first_seen and badges to each row and a first_seen column."""
         now = now or dt.datetime.now(dt.timezone.utc)

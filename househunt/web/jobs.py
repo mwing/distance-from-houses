@@ -15,6 +15,8 @@ from .store import Store
 
 log = logging.getLogger(__name__)
 HELSINKI = ZoneInfo("Europe/Helsinki")
+# A run that crashes the process would otherwise be retried after every restart.
+MAX_SCHEDULED_RETRIES = 1
 
 
 @dataclass
@@ -129,8 +131,12 @@ class JobManager:
             self.store.finish_run(run_id, "done", payload=payload, summary=summary(payload))
             log.info("Run %d done: %s", run_id, summary(payload))
         except Cancelled:
-            self.store.finish_run(run_id, "cancelled", error="Cancelled")
-            log.info("Run %d cancelled", run_id)
+            if self._stop.is_set():
+                self.store.finish_run(run_id, "interrupted", error="Server stopped during the run")
+                log.info("Run %d interrupted by shutdown", run_id)
+            else:
+                self.store.finish_run(run_id, "cancelled", error="Cancelled")
+                log.info("Run %d cancelled", run_id)
         except Exception as e:
             log.exception("Run %d failed", run_id)
             self.store.finish_run(run_id, "failed", error=str(e) or e.__class__.__name__)
@@ -157,6 +163,8 @@ class JobManager:
                 continue
             last = self.store.last_scheduled_at(p["id"])
             if last and dt.datetime.fromisoformat(last) >= due:
+                continue
+            if self.store.interrupted_scheduled_since(p["id"], due.isoformat()) > MAX_SCHEDULED_RETRIES:
                 continue
             try:
                 started.append(self.enqueue(p["id"], "scheduled")["id"])
