@@ -7,6 +7,19 @@ as a command-line tool that writes `output/listings.csv` and `output/listings.ht
 
 ## Web app
 
+Try it locally in the same container setup as the server:
+
+```sh
+./run-local.sh            # builds, creates .env with a generated password, serves http://localhost:8000
+./run-local.sh up         # same, in the background (then: logs, down)
+./run-local.sh import config.yaml   # turn a CLI config into a saved search
+./run-local.sh reset      # stop and delete the local data volume
+```
+
+Add `DIGITRANSIT_API_KEY` to `.env` for public transport times.
+
+On the server:
+
 ```sh
 cp .env.example .env                 # set HOUSEHUNT_PASSWORD and DIGITRANSIT_API_KEY
 cp compose.example.yaml compose.yaml
@@ -15,7 +28,9 @@ docker compose up -d --build         # listens on 127.0.0.1:8000
 
 Put it behind your reverse proxy with TLS; the session cookie is marked `Secure`
 when the proxy sends `X-Forwarded-Proto: https`. Data (saved searches, results,
-listing history, route cache) lives in the `/data` volume.
+listing history, route cache) lives in the `/data` volume. If you bind-mount a
+host directory instead of the named volume, make it writable for the container
+user: `chown 10001 <dir>`.
 
 Without Docker:
 

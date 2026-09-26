@@ -37,7 +37,7 @@ _limiters_lock = threading.Lock()
 
 
 def shared_limiter(name: str, per_second: float) -> RateLimiter:
-    """One limiter per external service for the whole process, so concurrent runs share the budget."""
+    """Process-wide per service so concurrent runs share one budget; the first caller's per_second wins."""
     with _limiters_lock:
         if name not in _limiters:
             _limiters[name] = RateLimiter(per_second)

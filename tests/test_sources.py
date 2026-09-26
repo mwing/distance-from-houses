@@ -96,3 +96,16 @@ def test_target_datetime_next_weekday():
     kind, when = target_datetime(TransitSettings(arrive_by=None, depart_at="7:30", day="monday"), today=dt.date(2026, 9, 26))
     assert kind == "earliestDeparture"
     assert when == "2026-09-28T07:30:00+03:00"
+
+
+def test_all_sources_failing_raises(monkeypatch):
+    from househunt import pipeline
+    from househunt.config import config_from_dict
+
+    def broken(*a, **k):
+        raise RuntimeError("blocked")
+
+    monkeypatch.setattr(pipeline, "FETCHERS", {"oikotie": broken, "etuovi": broken})
+    cfg = config_from_dict({"destinations": [{"name": "W", "lat": 60.2, "lon": 24.9}]}, env_api_key=False)
+    with pytest.raises(RuntimeError, match="Every listing source failed"):
+        pipeline.fetch_listings(cfg)

@@ -34,7 +34,7 @@ class AlreadyRunning(Exception):
 
 
 class JobManager:
-    """Runs searches one at a time in a background thread, so the external services see one client."""
+    """Single worker by design: the external APIs' rate limits assume one client."""
 
     def __init__(self, store: Store, settings: ServerSettings):
         self.store = store
@@ -112,7 +112,10 @@ class JobManager:
         progress = Progress(listener)
         with self._lock:
             self._progress[run_id] = progress
-        self.store.mark_running(run_id)
+        if not self.store.mark_running(run_id):
+            with self._lock:
+                self._progress.pop(run_id, None)
+            return
         log.info("Run %d for profile %r started (%s)", run_id, profile["name"], run["trigger"])
         try:
             cfg = config_from_dict(profile["settings"], env_api_key=False)
@@ -152,7 +155,7 @@ class JobManager:
             due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
             if now < due:
                 continue
-            last = self.store.last_run_at(p["id"], "scheduled")
+            last = self.store.last_scheduled_at(p["id"])
             if last and dt.datetime.fromisoformat(last) >= due:
                 continue
             try:

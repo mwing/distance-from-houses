@@ -1,3 +1,4 @@
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -64,6 +65,10 @@ def _parse_filters(raw: dict) -> Filters:
     bad = set(f.plot_ownership) - set(PLOT_OWNERSHIP)
     if bad:
         raise ValueError(f"Unknown plot_ownership {sorted(bad)}; allowed: {', '.join(PLOT_OWNERSHIP)}")
+    for name in ("price_min", "price_max", "size_min", "size_max"):
+        v = getattr(f, name)
+        if v is not None and (not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0):
+            raise ValueError(f"{name} must be a number of zero or more")
     if any(r < 1 or r > 5 for r in f.rooms):
         raise ValueError("rooms must be between 1 and 5 (5 means 5 or more)")
     return f
@@ -79,15 +84,21 @@ def _parse_destination(raw: dict) -> Destination:
     if bad:
         raise ValueError(f"Destination {raw['name']!r}: unknown modes {sorted(bad)}")
     max_minutes = {str(k).lower(): float(v) for k, v in (raw.get("max_minutes") or {}).items() if v is not None}
-    if set(max_minutes) - set(MODES) or any(v <= 0 for v in max_minutes.values()):
+    if set(max_minutes) - set(MODES) or not all(math.isfinite(v) and v > 0 for v in max_minutes.values()):
         raise ValueError(f"Destination {raw['name']!r}: max_minutes needs positive values for transit/car")
+    weight = float(raw.get("weight", 1.0))
+    if not math.isfinite(weight) or weight < 0:
+        raise ValueError(f"Destination {raw['name']!r}: weight must be zero or more")
+    for key in ("lat", "lon"):
+        if raw.get(key) is not None and not math.isfinite(float(raw[key])):
+            raise ValueError(f"Destination {raw['name']!r}: {key} must be a number")
     return Destination(
         name=raw["name"],
         address=raw.get("address"),
         lat=raw.get("lat"),
         lon=raw.get("lon"),
         modes=modes,
-        weight=float(raw.get("weight", 1.0)),
+        weight=weight,
         max_minutes=max_minutes,
     )
 
@@ -119,6 +130,8 @@ def _config_from_dict(raw: dict, env_api_key: bool) -> Config:
     names = [d.name for d in destinations]
     if len(set(names)) != len(names):
         raise ValueError("Destination names must be unique")
+    if not any(d.weight > 0 for d in destinations):
+        raise ValueError("At least one destination needs a weight above zero")
     t = raw.get("transit") or {}
     depart_at = _parse_hhmm(t.get("depart_at"), "transit.depart_at")
     arrive_by = _parse_hhmm(t.get("arrive_by"), "transit.arrive_by")
@@ -154,8 +167,10 @@ def _config_from_dict(raw: dict, env_api_key: bool) -> Config:
     )
     if not 0 <= map_settings.green_factor < map_settings.red_factor:
         raise ValueError("map: need 0 <= green_factor < red_factor")
-    if map_settings.default_max_minutes <= 0 or map_settings.fade_km <= 0 or map_settings.idw_power <= 0:
-        raise ValueError("map: default_max_minutes, fade_km and idw_power must be positive")
+    numbers = (map_settings.green_factor, map_settings.red_factor, map_settings.default_max_minutes,
+               map_settings.fade_km, map_settings.idw_power)
+    if not all(math.isfinite(v) for v in numbers) or min(numbers[2:]) <= 0:
+        raise ValueError("map: default_max_minutes, fade_km and idw_power must be positive numbers")
     max_listings = int(raw.get("max_listings", 500))
     if not 1 <= max_listings <= 5000:
         raise ValueError("max_listings must be between 1 and 5000")

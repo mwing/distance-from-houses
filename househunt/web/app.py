@@ -1,8 +1,8 @@
+import asyncio
 import logging
 import os
 import re
 import sys
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -23,11 +23,12 @@ from .store import Store, sanitize_settings
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
 OPEN_API_PATHS = {"/api/login", "/api/logout", "/api/session"}
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 CSP = "; ".join([
     "default-src 'self'",
-    "script-src 'self' https://unpkg.com",
-    "style-src 'self' 'unsafe-inline' https://unpkg.com",
+    "script-src 'self' https://unpkg.com/leaflet@1.9.4/dist/",
+    "style-src 'self' 'unsafe-inline' https://unpkg.com/leaflet@1.9.4/dist/",
     "img-src 'self' data: https://tile.openstreetmap.org https://cdn.asunnot.oikotie.fi https://d3ls91xgksobn.cloudfront.net",
     "connect-src 'self'",
     "frame-ancestors 'none'",
@@ -79,7 +80,11 @@ def create_app(settings: ServerSettings, auth: Auth, start_jobs: bool = True) ->
     @app.middleware("http")
     async def guard(request: Request, call_next):
         path = request.url.path
-        if path.startswith("/api/") and path not in OPEN_API_PATHS and not auth.valid(request.cookies.get(COOKIE)):
+        # SameSite=Lax still lets sibling subdomains behind the same proxy POST with the cookie.
+        cross_site = request.headers.get("sec-fetch-site") not in (None, "same-origin", "none")
+        if path.startswith("/api/") and request.method not in SAFE_METHODS and cross_site:
+            response = JSONResponse({"detail": "Cross-site request refused"}, status_code=403)
+        elif path.startswith("/api/") and path not in OPEN_API_PATHS and not auth.valid(request.cookies.get(COOKIE)):
             response = JSONResponse({"detail": "Not signed in"}, status_code=401)
         else:
             response = await call_next(request)
@@ -90,18 +95,19 @@ def create_app(settings: ServerSettings, auth: Auth, start_jobs: bool = True) ->
             response.headers["Cache-Control"] = "no-store"
         return response
 
-    # Session
-
     @app.get("/api/session")
     def session(request: Request):
         return {"auth_required": auth.enabled, "authenticated": auth.valid(request.cookies.get(COOKIE))}
 
     @app.post("/api/login")
-    def login(request: Request, response: Response, body: dict = Body(...)):
+    async def login(request: Request, response: Response, body: dict = Body(...)):
         if not auth.enabled:
             return {"ok": True}
+        if auth.throttle.locked():
+            raise HTTPException(429, "Too many failed attempts, try again in a minute")
         if not auth.check_password(str(body.get("password") or "")):
-            time.sleep(1)
+            auth.throttle.failed()
+            await asyncio.sleep(1)
             raise HTTPException(401, "Wrong password")
         secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
         response.set_cookie(COOKIE, auth.issue(), max_age=SESSION_SECONDS, httponly=True, samesite="lax", secure=secure)
@@ -111,8 +117,6 @@ def create_app(settings: ServerSettings, auth: Auth, start_jobs: bool = True) ->
     def logout(response: Response):
         response.delete_cookie(COOKIE)
         return {"ok": True}
-
-    # Reference data
 
     @app.get("/api/meta")
     def meta():
@@ -136,8 +140,6 @@ def create_app(settings: ServerSettings, auth: Auth, start_jobs: bool = True) ->
         except Exception as e:
             log.warning("Geocoding %r failed: %s", q, e)
             raise HTTPException(502, "Address search is unavailable right now") from e
-
-    # Profiles
 
     @app.get("/api/profiles")
     def list_profiles():
@@ -172,8 +174,6 @@ def create_app(settings: ServerSettings, auth: Auth, start_jobs: bool = True) ->
         if not store.delete_profile(profile_id):
             raise HTTPException(404, "No such search")
         return Response(status_code=204)
-
-    # Runs
 
     def _with_live(run: dict) -> dict:
         live = jobs.live_progress(run["id"])

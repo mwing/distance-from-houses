@@ -220,6 +220,15 @@ Tasks:
 - [x] Local checks: live run through the API (car only), headless-Chrome
       screenshots of all views (phone check at 500 px: headless Chrome on macOS
       won't lay out narrower), container smoke test (auth 401/200, static)
+- [x] Review (manual, CodeRabbit CLI not installed) and fixes: login throttle + async delay,
+      malformed-cookie 500, password change ends sessions, session key file created 0600
+      and regenerated if short, cross-site POST guard (Sec-Fetch-Site), CSP pinned to the
+      Leaflet path, CSV formula neutralising, `<` escaped in the report JSON, duplicate
+      listing keys, cancel-before-start race, all-sources-failed fails the run, NaN and
+      negative-weight validation, scheduler retries interrupted runs, WAL on the route cache,
+      healthcheck port. Kept the direct X-Forwarded-Proto check for the Secure flag (works
+      even when HOUSEHUNT_TRUSTED_PROXIES doesn't match the proxy).
+- [x] `run-local.sh`: the server's Docker setup on localhost (generated password, import, reset)
 - [ ] Deploy to the user's server behind their reverse proxy; smoke test on phone
 - [ ] Nominatim policy forbids autocomplete: address search stays behind the Find
       button; keep it that way if the form is reworked

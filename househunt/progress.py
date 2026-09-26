@@ -10,8 +10,6 @@ class Cancelled(Exception):
 
 
 class Progress:
-    """Tracks the current phase of a run and forwards snapshots to a listener."""
-
     def __init__(self, listener: Callable[[dict], None] | None = None, cancel: threading.Event | None = None):
         self.listener = listener
         self.cancel = cancel or threading.Event()
@@ -76,8 +74,6 @@ def _fmt_eta(seconds: int | None) -> str:
 
 
 class TerminalProgress:
-    """Single-line progress bar on stderr for the CLI."""
-
     def __init__(self, stream=sys.stderr):
         self.stream = stream
         self.enabled = stream.isatty()
@@ -96,7 +92,6 @@ class TerminalProgress:
             self.stream.flush()
 
     def install_log_handler(self) -> None:
-        """Route log records around the bar so they don't land mid-line."""
         root = logging.getLogger()
         for h in root.handlers:
             if isinstance(h, logging.StreamHandler) and getattr(h, "stream", None) is self.stream:

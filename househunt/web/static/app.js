@@ -59,8 +59,6 @@ function errorBox(message) {
   return h("div", {class: "error", role: "alert"}, message);
 }
 
-// Routing
-
 async function route() {
   const hash = location.hash || "#/";
   try {
@@ -88,8 +86,6 @@ logoutBtn.addEventListener("click", async () => {
   location.hash = "#/login";
 });
 
-// Login
-
 function viewLogin() {
   const pw = h("input", {type: "password", autocomplete: "current-password", required: true, "aria-label": "Password"});
   const err = h("div");
@@ -112,8 +108,6 @@ function viewLogin() {
   show(form);
   pw.focus();
 }
-
-// Profiles
 
 const STATUS_LABEL = {queued: "Queued", running: "Running", done: "Updated", failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted"};
 
@@ -154,8 +148,6 @@ async function viewProfiles() {
   });
   show(head, h("div", {class: "cards"}, cards));
 }
-
-// Settings form
 
 function chipGroup(name, options, selected, labelFn = titleCase) {
   const set = new Set(selected);
@@ -349,8 +341,6 @@ async function viewSettings(profileId) {
   });
   show(form);
 }
-
-// Results
 
 const PHASES = {
   "destinations": "Locating destinations",

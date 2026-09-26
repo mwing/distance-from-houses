@@ -93,8 +93,6 @@ class Store:
         with self._lock:
             return self._db.execute(sql, params).fetchone()
 
-    # Profiles
-
     @staticmethod
     def _profile(row: sqlite3.Row) -> dict:
         return {
@@ -135,8 +133,6 @@ class Store:
     def delete_profile(self, profile_id: int) -> bool:
         return self._exec("DELETE FROM profiles WHERE id = ?", (profile_id,)).rowcount > 0
 
-    # Runs
-
     @staticmethod
     def _run(row: sqlite3.Row) -> dict:
         return {
@@ -174,8 +170,11 @@ class Store:
         )
         return self._run(row) if row else None
 
-    def mark_running(self, run_id: int) -> None:
-        self._exec("UPDATE runs SET status = 'running', started_at = ? WHERE id = ?", (now_iso(), run_id))
+    def mark_running(self, run_id: int) -> bool:
+        cur = self._exec(
+            "UPDATE runs SET status = 'running', started_at = ? WHERE id = ? AND status = 'queued'", (now_iso(), run_id)
+        )
+        return cur.rowcount > 0
 
     def save_progress(self, run_id: int, progress: dict) -> None:
         self._exec("UPDATE runs SET progress = ? WHERE id = ?", (json.dumps(progress), run_id))
@@ -215,20 +214,19 @@ class Store:
         )
         return (self._run(row), json.loads(row["result"])) if row else None
 
-    def last_run_at(self, profile_id: int, trigger: str | None = None) -> str | None:
-        if trigger:
-            row = self._one("SELECT MAX(created_at) AS t FROM runs WHERE profile_id = ? AND trigger = ?", (profile_id, trigger))
-        else:
-            row = self._one("SELECT MAX(created_at) AS t FROM runs WHERE profile_id = ?", (profile_id,))
+    def last_scheduled_at(self, profile_id: int) -> str | None:
+        # Interrupted runs don't count, so a restart during a scheduled run retries it the same day.
+        row = self._one(
+            "SELECT MAX(created_at) AS t FROM runs WHERE profile_id = ? AND trigger = 'scheduled' AND status != 'interrupted'",
+            (profile_id,),
+        )
         return row["t"] if row else None
 
-    # Listing history
-
     def apply_history(self, profile_id: int, payload: dict, now: dt.datetime | None = None) -> None:
-        """Record first/last seen and price changes, and add badges and first_seen to the payload rows."""
+        """Mutates payload: adds first_seen and badges to each row and a first_seen column."""
         now = now or dt.datetime.now(dt.timezone.utc)
         ts = now.isoformat(timespec="microseconds")
-        with self._lock:
+        with self._lock, self._db:
             existing = {
                 r["key"]: (r["first_seen"], json.loads(r["price_history"]))
                 for r in self._db.execute("SELECT * FROM listings WHERE profile_id = ?", (profile_id,))
@@ -250,9 +248,9 @@ class Store:
                         "INSERT INTO listings (profile_id, key, first_seen, last_seen, price_history) VALUES (?, ?, ?, ?, ?)",
                         (profile_id, key, ts, ts, json.dumps(history)),
                     )
+                    existing[key] = (first_seen, history)
                 row["first_seen"] = first_seen[:10]
                 row["badges"] = _badges(first_seen, history, first_batch, now)
-            self._db.commit()
         if "first_seen" not in payload["columns"]:
             payload["columns"].append("first_seen")
 

@@ -216,3 +216,75 @@ def test_settings_shaped_like_the_web_form_are_accepted(env):
     assert r.status_code == 200 and r.json()["name"] == "Renamed"
     bad = {**form, "settings": {**form["settings"], "transit": {"day": "funday"}}}
     assert client.put(f"/api/profiles/{p['id']}", json=bad).status_code == 422
+
+
+def test_malformed_cookies_are_rejected_not_500(env):
+    client, _, _ = env
+    for token in ("9999999999.\u00e9", "\u00b2\u00b2.abc", "nodot", "123."):
+        raw = f"househunt_session={token}".encode("utf-8")
+        assert client.get("/api/profiles", headers=[(b"cookie", raw)]).status_code == 401
+
+
+def test_changing_password_ends_sessions(tmp_path):
+    old, new = Auth("one", b"k" * 32), Auth("two", b"k" * 32)
+    token = old.issue()
+    assert old.valid(token) and not new.valid(token)
+
+
+def test_login_locks_after_repeated_failures(env, monkeypatch):
+    client, _, _ = env
+
+    async def no_sleep(_):
+        return None
+
+    monkeypatch.setattr(web_app.asyncio, "sleep", no_sleep)
+    for _ in range(5):
+        assert client.post("/api/login", json={"password": "nope"}).status_code == 401
+    assert client.post("/api/login", json={"password": "s3cret"}).status_code == 429
+
+
+def test_cross_site_posts_refused(env):
+    client, _, _ = env
+    login(client)
+    p = create(client)
+    r = client.post(f"/api/profiles/{p['id']}/runs", headers={"Sec-Fetch-Site": "same-site"})
+    assert r.status_code == 403
+    r = client.post(f"/api/profiles/{p['id']}/runs", headers={"Sec-Fetch-Site": "same-origin"})
+    assert r.status_code == 202
+
+
+def test_duplicate_listing_without_price_does_not_fail_run(env):
+    client, app, fake = env
+    login(client)
+    p = create(client)
+    fake.listings = [listing("9", None), listing("9", None)]
+    assert run_now(client, app, p["id"])["status"] == "done"
+
+
+def test_cancel_just_before_start_is_honoured(env):
+    client, app, fake = env
+    login(client)
+    p = create(client)
+    run = client.post(f"/api/profiles/{p['id']}/runs").json()
+    queued = app.state.store.get_run(run["id"])
+    assert client.post(f"/api/runs/{run['id']}/cancel").json() == {"cancelled": True}
+    app.state.jobs._execute(queued)
+    assert client.get(f"/api/runs/{run['id']}").json()["status"] == "cancelled"
+    assert fake.calls == 0
+
+
+def test_nan_settings_rejected(env):
+    client, _, _ = env
+    login(client)
+    body = {"name": "x", "settings": {**SETTINGS, "map": {"fade_km": float("nan")}}}
+    r = client.post("/api/profiles", content=__import__("json").dumps(body), headers={"Content-Type": "application/json"})
+    assert r.status_code == 422
+    bad = {**SETTINGS, "destinations": [{**SETTINGS["destinations"][0], "weight": -1}]}
+    assert client.post("/api/profiles", json={"name": "x", "settings": bad}).status_code == 422
+
+
+def test_csv_neutralises_formulas():
+    from househunt.report import csv_text
+    payload = {"rows": [{"address": "=HYPERLINK(\"x\")", "price_eur": -5, "times": {}, "badges": []}]}
+    text = csv_text(payload)
+    assert "'=HYPERLINK" in text and ",-5" in text

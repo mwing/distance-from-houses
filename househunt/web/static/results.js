@@ -49,7 +49,7 @@ function renderResults(container, DATA, opts = {}) {
   }
   const limitFor = (d, mode) => d.limits[mode] ?? M.defaultLimit;
 
-  // Per destination, the mode the score uses: the first listed mode that has a time.
+  // Must match pipeline._score: the first listed mode that has a time.
   function scoreModeValue(row, d) {
     for (const mode of d.modes) {
       const tv = travelValue(row, d.name, mode);
@@ -61,7 +61,6 @@ function renderResults(container, DATA, opts = {}) {
   let excluded = new Set();
   try { excluded = new Set(JSON.parse(localStorage.getItem(storeKey) || "[]")); } catch (e) {}
 
-  // Combined views work in percent of each destination's own limit.
   function combined(row, reduce) {
     const parts = DATA.dests.filter(d => !excluded.has(d.name)).map(d => ({d, tv: scoreModeValue(row, d)}));
     if (!parts.length || parts.some(p => !p.tv)) return null;
@@ -97,7 +96,6 @@ function renderResults(container, DATA, opts = {}) {
     recolour();
   });
 
-  // Inverse-distance-weighted surface from the houses' own travel times, faded out away from any house.
   const TravelLayer = L.Layer.extend({
     onAdd(map) {
       this._canvas = L.DomUtil.create("canvas", "leaflet-zoom-hide");

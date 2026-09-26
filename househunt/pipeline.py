@@ -25,6 +25,7 @@ class Result:
 def fetch_listings(cfg: Config, progress: Progress | None = None) -> list[Listing]:
     progress = progress or Progress()
     listings: list[Listing] = []
+    failures = []
     for source in cfg.sources:
         progress.start(f"fetch {source}")
         try:
@@ -33,9 +34,13 @@ def fetch_listings(cfg: Config, progress: Progress | None = None) -> list[Listin
             raise
         except Exception as e:
             log.error("Fetching from %s failed: %s", source, e)
+            failures.append(f"{source}: {e}")
             continue
         log.info("%s: %d listings", source, len(got))
         listings.extend(got)
+    if failures and len(failures) == len(cfg.sources):
+        raise RuntimeError("Every listing source failed: " + "; ".join(failures))
+    listings = list({(l.source, l.id): l for l in listings}.values())
     with_coords = []
     for l in listings:
         if l.lat is None or l.lon is None:

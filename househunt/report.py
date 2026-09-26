@@ -10,6 +10,7 @@ from .pipeline import Result
 
 STATIC = Path(__file__).parent / "web" / "static"
 CSV_SKIP = {"times", "badges"}
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 
 def _row(r: Result, dests: list[Destination]) -> dict:
@@ -60,8 +61,13 @@ def build_payload(results: list[Result], dests: list[Destination], map_settings:
     }
 
 
+def _csv_cell(v):
+    # Listing text comes from third-party sites; a leading = or + would run as a spreadsheet formula.
+    return "'" + v if isinstance(v, str) and v.startswith(FORMULA_START) else v
+
+
 def csv_text(payload: dict) -> str:
-    rows = [{k: v for k, v in r.items() if k not in CSV_SKIP} for r in payload["rows"]]
+    rows = [{k: _csv_cell(v) for k, v in r.items() if k not in CSV_SKIP} for r in payload["rows"]]
     if not rows:
         return ""
     buf = io.StringIO()
@@ -81,7 +87,7 @@ def write_csv(payload: dict, path: Path) -> None:
 
 
 def write_html(payload: dict, path: Path) -> None:
-    data = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
+    data = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
     page = (
         TEMPLATE.replace("__CSS__", (STATIC / "results.css").read_text(encoding="utf-8"))
         .replace("__JS__", (STATIC / "results.js").read_text(encoding="utf-8"))
