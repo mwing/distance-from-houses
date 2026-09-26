@@ -43,6 +43,9 @@ The map colours the area around the houses by travel time. Green up to
   destination weights.
 - A single destination and mode, in minutes.
 
+While a combined view is selected, "Include" checkboxes pick which destinations
+count (e.g. leave out one you visit rarely). The browser remembers the choice.
+
 The combined views use the same mode per destination as `score`. The layer is
 interpolated from the houses' own times, so it only covers areas near listings.
 Houses over a `max_minutes` limit are hidden unless "Show houses over the limit" is

@@ -118,6 +118,7 @@ TEMPLATE = """<!doctype html>
   tr.far td { color: #888; }
   a { color: #0b57d0; }
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  #combine-dests { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; }
   .legend { background: #fff; padding: 8px 10px; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.25); font-size: 12px; line-height: 1.4; }
   .legend .bar { width: 180px; height: 10px; border-radius: 3px; margin: 4px 0 2px; }
   .legend .ticks { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
@@ -125,6 +126,7 @@ TEMPLATE = """<!doctype html>
 <header>
   <h1>househunt — __COUNT__</h1>
   <label>Colour by <select id="colour-by"></select></label>
+  <span id="combine-dests" hidden></span>
   <label><input type="checkbox" id="show-far"> Show houses over the limit</label>
 </header>
 <div id="file-warning" hidden>Map tiles don't load from a local file. Open this report with <code>python -m househunt serve</code>.</div>
@@ -170,9 +172,13 @@ function scoreModeValue(row, d) {
 }
 
 // Combined views work in percent of each destination's own limit.
+const STORE_KEY = "househunt.combineExcluded";
+let excluded = new Set();
+try { excluded = new Set(JSON.parse(localStorage.getItem(STORE_KEY) || "[]")); } catch (e) {}
+
 function combined(row, reduce) {
-  const parts = DATA.dests.map(d => ({d, tv: scoreModeValue(row, d)}));
-  if (parts.some(p => !p.tv)) return null;
+  const parts = DATA.dests.filter(d => !excluded.has(d.name)).map(d => ({d, tv: scoreModeValue(row, d)}));
+  if (!parts.length || parts.some(p => !p.tv)) return null;
   const pct = parts.map(p => ({pct: 100 * p.tv.v / p.tv.limit, w: p.d.weight ?? 1, atLeast: p.tv.atLeast}));
   return {v: Math.round(reduce(pct)), atLeast: pct.some(p => p.atLeast)};
 }
@@ -181,8 +187,8 @@ const average = ps => ps.reduce((a, p) => a + p.pct * p.w, 0) / ps.reduce((a, p)
 
 const options = [];
 if (DATA.dests.length > 1) {
-  options.push({label: "All destinations · worst", unit: "% of limit", limit: 100, value: r => combined(r, worst)});
-  options.push({label: "All destinations · weighted average", unit: "% of limit", limit: 100, value: r => combined(r, average)});
+  options.push({combined: true, label: "All destinations · worst", unit: "% of limit", limit: 100, value: r => combined(r, worst)});
+  options.push({combined: true, label: "All destinations · weighted average", unit: "% of limit", limit: 100, value: r => combined(r, average)});
 }
 DATA.dests.forEach(d => d.modes.forEach(mode => {
   if (DATA.rows.some(r => travelValue(r, d.name, mode))) {
@@ -190,10 +196,19 @@ DATA.dests.forEach(d => d.modes.forEach(mode => {
     options.push({label: `${d.name} · ${mode} (limit ${limit} min)`, unit: "min", limit, value: r => travelValue(r, d.name, mode)});
   }
 }));
-if (DATA.dests.length > 1 && !DATA.rows.some(r => combined(r, worst))) options.splice(0, 2);
+if (DATA.dests.length > 1 && !DATA.rows.some(r => DATA.dests.every(d => scoreModeValue(r, d)))) options.splice(0, 2);
 const select = document.getElementById("colour-by");
 select.innerHTML = options.map((o, i) => `<option value="${i}">${esc(o.label)}</option>`).join("");
 if (!options.length) select.closest("label").hidden = true;
+const combineEl = document.getElementById("combine-dests");
+combineEl.innerHTML = "Include:" + DATA.dests.map((d, i) =>
+  `<label><input type="checkbox" data-dest="${i}"${excluded.has(d.name) ? "" : " checked"}> ${esc(d.name)}</label>`).join("");
+combineEl.addEventListener("change", e => {
+  const d = DATA.dests[e.target.dataset.dest];
+  if (e.target.checked) excluded.delete(d.name); else excluded.add(d.name);
+  try { localStorage.setItem(STORE_KEY, JSON.stringify([...excluded])); } catch (err) {}
+  recolour();
+});
 const current = () => options[+select.value];
 
 // Inverse-distance-weighted surface from the houses' own travel times, faded out away from any house.
@@ -288,6 +303,7 @@ const visible = r => showFar.checked || r.within_limits;
 
 function recolour() {
   const o = current();
+  combineEl.hidden = !o?.combined;
   const points = [];
   DATA.rows.forEach((r, i) => {
     const tv = o && o.value(r);

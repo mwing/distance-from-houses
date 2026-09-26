@@ -138,6 +138,7 @@ Tasks:
 - [x] Scale: green up to `green_factor` × limit (default 0.5), red at `red_factor` × limit (default 1)
 - [x] Combined colour views: worst and weighted average of each destination's
       time as % of its limit (score mode per destination); worst is the default
+- [x] "Include" checkboxes for the combined views, remembered in localStorage
 - [ ] Visual check with transit times
 - [ ] Municipality filter misses village names from Etuovi ("Nummela" for Vihti);
       map villages → municipality or filter by postcode
