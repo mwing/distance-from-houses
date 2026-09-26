@@ -143,9 +143,82 @@ Tasks:
 - [ ] Municipality filter misses village names from Etuovi ("Nummela" for Vihti);
       map villages → municipality or filter by postcode
 
+### Web app
+Goal: everything in the browser — settings, starting a run, progress, map and
+table — with no YAML or terminal. Runs on the user's own web server.
+
+Why a backend at all: Etuovi and Oikotie send no CORS headers (verified
+2026-09-26) and Oikotie's token comes from its HTML, so a browser can't fetch
+listings directly. Digitransit, OSRM and Nominatim do allow browser calls, but
+routing stays server-side anyway (below).
+
+Design — backend does the work, browser renders:
+- **Backend** (Python, reuses `househunt` as-is): FastAPI + uvicorn, SQLite in a
+  data dir. Owns listing fetch, geocoding, routing, the route cache, the
+  Digitransit key (env var, never sent to the browser) and run jobs.
+- **Why not in the browser:** the shared cache is reused across devices and
+  users; long transit runs (~6 min for 666 routes) survive a closed tab;
+  scheduled refreshes; no TypeScript port of working code.
+- **Browser** (static files served by the same app, vanilla JS + Leaflet, no
+  build step — same as the current report): settings forms, run button +
+  progress, map/table. Colour layer, "Colour by", "Include", sorting and the
+  over-limit toggle stay client-side (instant, no round-trip).
+- **Profiles:** a named search = filters + destinations + transit + map
+  settings, stored in SQLite (the YAML config is replaced; CLI keeps working by
+  importing a YAML into a profile or reading it directly).
+- **Runs:** `POST` starts a background job (one per profile at a time); progress
+  events (phase, done/total, cache hits, ETA) polled or via SSE. Same progress
+  hooks feed the CLI progress bar from "Progress & feedback".
+- **Listings history:** store every listing per profile with `first_seen`,
+  `last_seen`, price history → "new" / "price dropped" / "gone" badges.
+- **Scheduled refresh:** daily per profile; only new listings get routed.
+- **Access:** behind the user's reverse proxy with TLS; app-level auth (single
+  shared password → session cookie, or proxy basic auth). The fetch endpoints
+  must never act as an open proxy to Etuovi/Oikotie.
+- **Politeness:** one global rate limiter per external service in the backend
+  (Nominatim 1/s, OSRM ~1/s, Digitransit configurable) so concurrent runs
+  can't exceed limits.
+
+API sketch:
+- `GET/POST /api/profiles`, `GET/PUT/DELETE /api/profiles/{id}`
+- `GET /api/geocode?q=` — destination search box (Nominatim, cached)
+- `POST /api/profiles/{id}/runs`, `GET /api/runs/{id}` (status + progress),
+  `GET /api/runs/{id}/events` (SSE)
+- `GET /api/profiles/{id}/results` — the JSON the report's `DATA` holds today
+  (rows, dests, columns, map settings) + listing history badges
+- `GET /api/profiles/{id}/results.csv`
+
+Open questions for the user (answer before the deploy tasks):
+- [ ] Server: OS, Docker available? Existing reverse proxy (nginx/Caddy/Traefik)?
+- [ ] Single user, or family/shared with separate logins?
+- [ ] Public domain or LAN/VPN only?
+
+Tasks:
+- [ ] Split `pipeline.run` into steps with a progress callback (fetch pages,
+      car batches, transit pairs) and cancellation
+- [ ] Settings model shared by YAML loader and API (pydantic), with the same
+      validation as `config.py`
+- [ ] SQLite schema: profiles, runs, listings (per profile, history), keep the
+      existing kv route cache; data dir from env
+- [ ] FastAPI app: profiles CRUD, geocode, runs (background thread worker),
+      results JSON/CSV; serve static frontend
+- [ ] Global per-service rate limiters shared by all jobs
+- [ ] Auth: password → signed session cookie; all `/api` routes protected
+- [ ] Frontend: profile list + settings form (house types, rooms, plot, price,
+      size, municipalities; destinations with geocode search, modes, weight,
+      max minutes; transit arrive/depart time and day; map factors)
+- [ ] Frontend: run button, progress bar with ETA, cancel
+- [ ] Frontend: results view — move the report's map/table JS into a module
+      that renders from `/results` (static report export keeps using it)
+- [ ] Listing history: first/last seen, price changes, badges in table and popup
+- [ ] Scheduled daily refresh per profile (in-process scheduler)
+- [ ] CLI: `househunt web` to start the server; `run` keeps working
+- [ ] Tests: API (profiles, run lifecycle with stubbed sources/routers), auth
+- [ ] Dockerfile + compose example (volume for data dir, env for key/password)
+- [ ] Deploy to the user's server behind their reverse proxy; smoke test on phone
+
 ### Later / ideas
 - [ ] More data points for the colour layer: extra sample points in sparse
       areas (grid cells with no house nearby), routed and cached like houses
 - [ ] Rentals (Oikotie `cardType=101`, Vuokraovi)
-- [ ] Incremental runs: only route new listings, flag new / price-changed
 - [ ] Self-hosted OSRM/OTP if public servers become limiting
