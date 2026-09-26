@@ -74,6 +74,21 @@ unchecked box.
 - [ ] End-to-end run with Digitransit key
 - [x] README
 
+### Progress & feedback
+Observed: a run sat on "Querying 666 transit routes" with no output. At the
+default 2 req/s that is ~6 min, up to ~11 min when the `hsl` router finds nothing
+and the `finland` fallback runs too, plus retry backoff on 429/5xx.
+
+- [ ] Progress bar for transit queries (done / total, rate, ETA), on stderr;
+      `tqdm` or a small built-in counter. Count cache hits separately.
+- [ ] Progress for listing fetch (pages per source) and car table batches
+- [ ] Log an up-front estimate: uncached pairs, expected duration at the
+      configured `requests_per_second`
+- [ ] Log retries/backoff (429, 5xx) and fallback-router usage at INFO so a slow
+      run is distinguishable from a hung one
+- [ ] Ctrl-C keeps finished results: cache is already written per route; make
+      sure an interrupted run exits cleanly and the next run resumes from cache
+
 ### Travel-time map
 Goal: the map shows each house as a marker at its address, on top of a
 colour layer of travel time to the selected destination: green up to the
