@@ -74,6 +74,43 @@ unchecked box.
 - [ ] End-to-end run with Digitransit key
 - [x] README
 
+### Travel-time map
+Goal: the map shows each house as a marker at its address, on top of a
+colour layer of travel time to the selected destination: green up to the
+limit set in config, shading through yellow/orange to red in areas that are
+too far.
+
+Design:
+- Colour layer = regular grid of sample points (default 1 km cells) over the
+  bounding box of the listings + destinations, padded ~5 km, clipped to Uusimaa.
+- Each cell stores travel minutes per destination × mode (car via OSRM table,
+  transit via Digitransit), cached like listing routes.
+- Colour scale per destination × mode: green at ≤ `max_minutes`, then a gradient
+  to red at `max_minutes × red_factor` (default 2) and above. Destinations
+  without `max_minutes` use a `map.default_max_minutes` fallback (e.g. 45).
+- Grey cells for "no route" (sea, no transit connection).
+- Markers keep the same colour scale as a ring/fill, so a house reads the same
+  as the area under it.
+
+Tasks:
+- [ ] Config: `map:` section — `cell_km`, `padding_km`, `red_factor`,
+      `default_max_minutes`, `enabled`
+- [ ] Grid generator: cells over padded bbox, drop cells outside Uusimaa
+      (simplified Uusimaa polygon bundled as GeoJSON) and on water
+- [ ] Car times for grid cells (batched OSRM table, cached)
+- [ ] Transit times for grid cells (rate-limited, cached; log estimated request
+      count and duration before starting; `--no-transit-grid` to skip)
+- [ ] Colour function: minutes + limit → green→yellow→red, grey for none;
+      unit tests for boundary values (at limit = green, ≥ limit × red_factor = red)
+- [ ] HTML: grid as semi-transparent Leaflet rectangles (or a canvas layer)
+      beneath the house markers
+- [ ] HTML: selector for destination × mode that recolours grid and markers
+- [ ] HTML: legend showing the scale with the actual minute values
+- [ ] Markers coloured with the same scale; popup unchanged
+- [ ] Check request volume on a real config (cells × destinations) and tune the
+      default `cell_km` so a first run stays within Digitransit's fair use
+- [ ] End-to-end run and visual check of the map (car only, then with transit)
+
 ### Later / ideas
 - [ ] Rentals (Oikotie `cardType=101`, Vuokraovi)
 - [ ] Incremental runs: only route new listings, flag new / price-changed
