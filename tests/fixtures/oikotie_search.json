@@ -1,0 +1,77 @@
+{
+ "found": 15846,
+ "cards": [
+  {
+   "cardId": 24711535,
+   "cardType": 100,
+   "cardSubType": 4,
+   "url": "https://asunnot.oikotie.fi/myytavat-asunnot/tuusula/24711535",
+   "data": {
+    "price": "445 000 €",
+    "size": "139/162 m²",
+    "sizeMin": 139,
+    "rooms": 4,
+    "buildYear": 1997
+   },
+   "location": {
+    "address": "Esimerkkitie 12",
+    "city": "Tuusula",
+    "latitude": 60.39,
+    "longitude": 24.99
+   },
+   "medias": [
+    {
+     "imageLargeJPEG": "https://cdn.asunnot.oikotie.fi/example.jpg"
+    }
+   ]
+  },
+  {
+   "cardId": 24711528,
+   "cardType": 100,
+   "cardSubType": 1,
+   "url": "https://asunnot.oikotie.fi/myytavat-asunnot/helsinki/24711528",
+   "data": {
+    "price": "839 000 €",
+    "size": "75 m²",
+    "sizeMin": 75,
+    "rooms": 2,
+    "buildYear": 1908
+   },
+   "location": {
+    "address": "Testikatu 3 B",
+    "city": "Helsinki",
+    "latitude": 60.18,
+    "longitude": 24.95
+   },
+   "medias": [
+    {
+     "imageLargeJPEG": "https://cdn.asunnot.oikotie.fi/example.jpg"
+    }
+   ]
+  },
+  {
+   "cardId": 24586084,
+   "cardType": 100,
+   "cardSubType": 4,
+   "url": "https://asunnot.oikotie.fi/myytavat-asunnot/espoo/24586084",
+   "data": {
+    "price": "879 000 €",
+    "size": "261/555 m²",
+    "sizeMin": 261,
+    "rooms": 6,
+    "buildYear": 2008
+   },
+   "location": {
+    "address": "Mallipolku 7",
+    "city": "Espoo",
+    "latitude": 60.26,
+    "longitude": 24.72
+   },
+   "medias": [
+    {
+     "imageLargeJPEG": "https://cdn.asunnot.oikotie.fi/example.jpg"
+    }
+   ]
+  }
+ ]
+}

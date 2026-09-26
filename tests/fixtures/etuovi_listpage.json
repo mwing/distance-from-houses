@@ -1,0 +1,47 @@
+{
+ "countOfAllResults": 18738,
+ "announcements": [
+  {
+   "friendlyId": "80531098",
+   "addressLine1": "Esimerkkitie 12",
+   "addressLine2": "Lahela Tuusula",
+   "latitude": 60.39,
+   "longitude": 24.99,
+   "searchPrice": 445000,
+   "area": 139,
+   "roomCount": "FOUR_ROOMS",
+   "propertySubtype": "DETACHED_HOUSE",
+   "constructionFinishedYear": 1997,
+   "mainImageUri": "//d3ls91xgksobn.cloudfront.net/{imageParameters}/etuovimedia/images/example/ORIGINAL.jpeg",
+   "mainImageHidden": false
+  },
+  {
+   "friendlyId": "80536779",
+   "addressLine1": "Testikatu 3 B",
+   "addressLine2": "Suutarila Helsinki",
+   "latitude": 60.28,
+   "longitude": 25.03,
+   "searchPrice": 84000,
+   "area": 58.5,
+   "roomCount": "TWO_ROOMS",
+   "propertySubtype": "APARTMENT_HOUSE",
+   "constructionFinishedYear": 1978,
+   "mainImageUri": "//d3ls91xgksobn.cloudfront.net/{imageParameters}/etuovimedia/images/example/ORIGINAL.jpeg",
+   "mainImageHidden": false
+  },
+  {
+   "friendlyId": "80533869",
+   "addressLine1": "Mallipolku 7",
+   "addressLine2": "Polari Karkkila",
+   "latitude": 60.53,
+   "longitude": 24.24,
+   "searchPrice": 75000,
+   "area": 64.5,
+   "roomCount": "TWO_ROOMS",
+   "propertySubtype": "ROW_HOUSE",
+   "constructionFinishedYear": 1975,
+   "mainImageUri": "//d3ls91xgksobn.cloudfront.net/{imageParameters}/etuovimedia/images/example/ORIGINAL.jpeg",
+   "mainImageHidden": false
+  }
+ ]
+}

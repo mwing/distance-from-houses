@@ -1,0 +1,36 @@
+sources: [oikotie, etuovi]
+max_listings: 300
+
+filters:
+  # kerrostalo, rivitalo, paritalo, erillistalo, omakotitalo, luhtitalo, puutalo-osake
+  house_types: [omakotitalo, paritalo, erillistalo, rivitalo]
+  rooms: [4, 5]            # 5 means 5 or more
+  plot_ownership: [own]    # own, rent
+  price_min: null
+  price_max: 600000
+  size_min: 90
+  size_max: null
+  municipalities: [Espoo, Vantaa, Kauniainen]   # empty = all of Uusimaa
+
+destinations:
+  - name: Work
+    address: Keilaniemi, Espoo
+    modes: [transit, car]
+    weight: 2
+    max_minutes: {transit: 45}
+  - name: Helsinki centre
+    address: Rautatieasema, Helsinki
+  - name: Grandparents
+    lat: 61.4978
+    lon: 23.7610
+    modes: [car]
+
+transit:
+  # Free key from https://portal-api.digitransit.fi/ ; or set DIGITRANSIT_API_KEY
+  api_key: null
+  router: hsl            # hsl or finland; finland is used as a fallback automatically
+  arrive_by: "09:00"     # or depart_at: "08:00"
+  day: tuesday           # next occurrence of this weekday
+  requests_per_second: 2
+
+output_dir: output
