@@ -46,6 +46,8 @@ unchecked box.
   (default next Tuesday 09:00).
 - SQLite cache for geocodes and routes, coordinates rounded to ~100 m.
 - Skip transit lookup when car time already exceeds that destination's transit limit.
+- Map tiles: CARTO Positron (`basemaps.cartocdn.com/light_all`). `tile.openstreetmap.org`
+  returns 403 "Access blocked" for reports opened from `file://` (no Referer).
 
 ## Tasks
 
