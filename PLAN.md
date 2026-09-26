@@ -46,8 +46,11 @@ unchecked box.
   (default next Tuesday 09:00).
 - SQLite cache for geocodes and routes, coordinates rounded to ~100 m.
 - Skip transit lookup when car time already exceeds that destination's transit limit.
-- Map tiles: CARTO Positron (`basemaps.cartocdn.com/light_all`). `tile.openstreetmap.org`
-  returns 403 "Access blocked" for reports opened from `file://` (no Referer).
+- Map tiles: Esri World Street Map, greyed with a CSS filter on the tile pane.
+  Loads from `file://` with no key. Rejected: `tile.openstreetmap.org` (403 without
+  a Referer), CARTO (now needs an API key; answers 200 with an "API KEY REQUIRED"
+  image, so check tile content, not status), Esri Light Gray (label layer empty
+  at street zooms).
 
 ## Tasks
 

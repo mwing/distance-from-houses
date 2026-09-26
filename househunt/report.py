@@ -61,6 +61,7 @@ TEMPLATE = """<!doctype html>
   header { padding: 12px 16px; }
   h1 { font-size: 18px; margin: 0; }
   #map { height: 45vh; }
+  #map .leaflet-tile-pane { filter: grayscale(.85) contrast(.95); }
   .wrap { overflow-x: auto; padding: 0 16px 24px; }
   table { border-collapse: collapse; width: 100%; background: #fff; }
   th, td { padding: 6px 8px; border-bottom: 1px solid #e5e5e5; text-align: left; white-space: nowrap; }
@@ -78,10 +79,10 @@ const DATA = __DATA__;
 const cols = DATA.columns;
 let sortCol = "score", asc = true;
 const map = L.map("map");
-// tile.openstreetmap.org blocks requests without a Referer, which a report opened from file:// never sends.
-L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-  maxZoom: 20, subdomains: "abcd",
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+// No key and no Referer needed, so it loads from file://. OSM's tile server 403s without a Referer; CARTO now needs a key.
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 19,
+  attribution: "Tiles &copy; Esri &mdash; Sources: Esri, HERE, Garmin, &copy; OpenStreetMap contributors"
 }).addTo(map);
 const markers = {};
 const bounds = [];
