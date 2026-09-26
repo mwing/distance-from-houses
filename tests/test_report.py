@@ -20,10 +20,10 @@ def tt_color(*calls):
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_color_scale_boundaries():
-    fast, at_limit, mid, at_red, beyond, none = tt_color(
-        [10, 30, 2], [30, 30, 2], [45, 30, 2], [60, 30, 2], [200, 30, 2], [None, 30, 2]
+    fast, at_green, mid, at_red, beyond, none = tt_color(
+        [5, 30, 0.5, 1], [15, 30, 0.5, 1], [22.5, 30, 0.5, 1], [30, 30, 0.5, 1], [200, 30, 0.5, 1], [None, 30, 0.5, 1]
     )
-    assert fast == GREEN and at_limit == GREEN
+    assert fast == GREEN and at_green == GREEN
     assert at_red == RED and beyond == RED
     assert mid[0] > 150 and mid[1] > 150 and mid[2] < 50
     assert none is None

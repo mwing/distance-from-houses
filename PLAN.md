@@ -110,8 +110,8 @@ Design:
   houses' minutes per destination × mode, drawn on a canvas layer. Fade out
   beyond ~3 km from the nearest house so empty areas aren't coloured from
   far-off data.
-- Colour scale per destination × mode: green at ≤ `max_minutes`, then a gradient
-  to red at `max_minutes × red_factor` (default 2) and above. Destinations
+- Colour scale per destination × mode: green at ≤ `max_minutes × green_factor`
+  (default 0.5), gradient to red at `max_minutes × red_factor` (default 1) and above. Destinations
   without `max_minutes` use `map.default_max_minutes` (e.g. 45).
 - Houses with no time for the selected mode (no route, outside Uusimaa for
   transit) are grey and left out of the interpolation.
@@ -135,6 +135,9 @@ Tasks:
       for one Mäntsälä listing placed near Mikkeli); transit eligibility by bbox,
       not municipality name (Etuovi gives villages like "Nummela")
 - [x] End-to-end run and visual check of the map, car only (headless Chrome screenshot)
+- [x] Scale: green up to `green_factor` × limit (default 0.5), red at `red_factor` × limit (default 1)
+- [x] Combined colour views: worst and weighted average of each destination's
+      time as % of its limit (score mode per destination); worst is the default
 - [ ] Visual check with transit times
 - [ ] Municipality filter misses village names from Etuovi ("Nummela" for Vihti);
       map villages → municipality or filter by postcode

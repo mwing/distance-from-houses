@@ -34,8 +34,10 @@ transit:
   requests_per_second: 2
 
 map:
-  # Colours: green up to a destination's max_minutes, red at max_minutes × red_factor.
-  red_factor: 2
+  # Colours as a fraction of each destination's max_minutes:
+  # green up to max_minutes × green_factor, fully red from max_minutes × red_factor.
+  green_factor: 0.5
+  red_factor: 1
   default_max_minutes: 45   # for destinations/modes without max_minutes
   fade_km: 3                # colour fades out this far from the nearest house
   idw_power: 2              # higher = nearer houses dominate the interpolation

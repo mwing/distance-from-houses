@@ -50,7 +50,8 @@ def write_html(results: list[Result], dests: list[Destination], map_settings: Ma
         row["times"] = r.times
         rows.append(row)
     dest_json = [
-        {"name": d.name, "lat": d.lat, "lon": d.lon, "modes": d.modes, "limits": d.max_minutes} for d in dests
+        {"name": d.name, "lat": d.lat, "lon": d.lon, "modes": d.modes, "limits": d.max_minutes, "weight": d.weight}
+        for d in dests
     ]
     columns = ["score", "address", "municipality", "house_type", "rooms", "size_m2", "price_eur", "price_per_m2", "build_year"]
     for d in dests:
@@ -61,6 +62,7 @@ def write_html(results: list[Result], dests: list[Destination], map_settings: Ma
             "dests": dest_json,
             "columns": columns,
             "map": {
+                "greenFactor": map_settings.green_factor,
                 "redFactor": map_settings.red_factor,
                 "defaultLimit": map_settings.default_max_minutes,
                 "fadeKm": map_settings.fade_km,
@@ -78,9 +80,9 @@ def write_html(results: list[Result], dests: list[Destination], map_settings: Ma
 
 
 COLOR_JS = """
-function ttColor(minutes, limit, redFactor) {
+function ttColor(minutes, limit, greenFactor, redFactor) {
   if (minutes == null || !isFinite(minutes)) return null;
-  const t = Math.min(1, Math.max(0, (minutes - limit) / (limit * (redFactor - 1))));
+  const t = Math.min(1, Math.max(0, (minutes / limit - greenFactor) / (redFactor - greenFactor)));
   const h = 120 * (1 - t) / 360, s = 0.8, l = 0.42;
   const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
   const ch = x => {
@@ -156,14 +158,41 @@ function travelValue(row, dest, mode) {
   return null;
 }
 
+const limitFor = (d, mode) => d.limits[mode] ?? M.defaultLimit;
+
+// Per destination, the mode the score uses: the first listed mode that has a time.
+function scoreModeValue(row, d) {
+  for (const mode of d.modes) {
+    const tv = travelValue(row, d.name, mode);
+    if (tv) return {...tv, limit: limitFor(d, mode)};
+  }
+  return null;
+}
+
+// Combined views work in percent of each destination's own limit.
+function combined(row, reduce) {
+  const parts = DATA.dests.map(d => ({d, tv: scoreModeValue(row, d)}));
+  if (parts.some(p => !p.tv)) return null;
+  const pct = parts.map(p => ({pct: 100 * p.tv.v / p.tv.limit, w: p.d.weight ?? 1, atLeast: p.tv.atLeast}));
+  return {v: Math.round(reduce(pct)), atLeast: pct.some(p => p.atLeast)};
+}
+const worst = ps => Math.max(...ps.map(p => p.pct));
+const average = ps => ps.reduce((a, p) => a + p.pct * p.w, 0) / ps.reduce((a, p) => a + p.w, 0);
+
 const options = [];
+if (DATA.dests.length > 1) {
+  options.push({label: "All destinations · worst", unit: "% of limit", limit: 100, value: r => combined(r, worst)});
+  options.push({label: "All destinations · weighted average", unit: "% of limit", limit: 100, value: r => combined(r, average)});
+}
 DATA.dests.forEach(d => d.modes.forEach(mode => {
   if (DATA.rows.some(r => travelValue(r, d.name, mode))) {
-    options.push({dest: d.name, mode, limit: d.limits[mode] ?? M.defaultLimit});
+    const limit = limitFor(d, mode);
+    options.push({label: `${d.name} · ${mode} (limit ${limit} min)`, unit: "min", limit, value: r => travelValue(r, d.name, mode)});
   }
 }));
+if (DATA.dests.length > 1 && !DATA.rows.some(r => combined(r, worst))) options.splice(0, 2);
 const select = document.getElementById("colour-by");
-select.innerHTML = options.map((o, i) => `<option value="${i}">${esc(o.dest)} · ${o.mode} (limit ${o.limit} min)</option>`).join("");
+select.innerHTML = options.map((o, i) => `<option value="${i}">${esc(o.label)}</option>`).join("");
 if (!options.length) select.closest("label").hidden = true;
 const current = () => options[+select.value];
 
@@ -209,7 +238,7 @@ const TravelLayer = L.Layer.extend({
         const dmin = Math.sqrt(dmin2);
         const alpha = dmin <= half ? 1 : Math.max(0, 1 - (dmin - half) / half);
         if (alpha === 0) continue;
-        const rgb = ttColor(exact ?? num / den, this._limit, M.redFactor);
+        const rgb = ttColor(exact ?? num / den, this._limit, M.greenFactor, M.redFactor);
         const i = (gy * gw + gx) * 4;
         img.data[i] = rgb[0]; img.data[i + 1] = rgb[1]; img.data[i + 2] = rgb[2]; img.data[i + 3] = Math.round(alpha * 255);
       }
@@ -228,10 +257,11 @@ function renderLegend() {
   const el = legend.getContainer();
   const o = current();
   if (!o) { el.hidden = true; return; }
-  const stops = [0, .25, .5, .75, 1].map(t => css(ttColor(o.limit * (1 + t * (M.redFactor - 1)), o.limit, M.redFactor)));
-  el.innerHTML = `<b>${esc(o.dest)} · ${o.mode}</b>
+  const at = t => o.limit * (M.greenFactor + t * (M.redFactor - M.greenFactor));
+  const stops = [0, .25, .5, .75, 1].map(t => css(ttColor(at(t), o.limit, M.greenFactor, M.redFactor)));
+  el.innerHTML = `<b>${esc(o.label)}</b>
     <div class="bar" style="background: linear-gradient(to right, ${stops.join(",")})"></div>
-    <div class="ticks"><span>≤ ${o.limit}</span><span>${Math.round(o.limit * (1 + M.redFactor) / 2)}</span><span>≥ ${Math.round(o.limit * M.redFactor)} min</span></div>
+    <div class="ticks"><span>≤ ${Math.round(at(0))}</span><span>${Math.round(at(.5))}</span><span>≥ ${Math.round(at(1))} ${o.unit}</span></div>
     <div><span class="swatch" style="background:#9e9e9e"></span>no route</div>`;
 }
 
@@ -260,9 +290,9 @@ function recolour() {
   const o = current();
   const points = [];
   DATA.rows.forEach((r, i) => {
-    const tv = o && travelValue(r, o.dest, o.mode);
+    const tv = o && o.value(r);
     if (tv) points.push({lat: r.lat, lon: r.lon, v: tv.v});
-    markers[i].setStyle({fillColor: css(tv ? ttColor(tv.v, o.limit, M.redFactor) : null)});
+    markers[i].setStyle({fillColor: css(tv ? ttColor(tv.v, o.limit, M.greenFactor, M.redFactor) : null)});
     if (visible(r)) markers[i].addTo(map); else markers[i].remove();
   });
   travelLayer.setData(points, o ? o.limit : M.defaultLimit);
