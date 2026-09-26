@@ -13,10 +13,12 @@ Try it locally in the same container setup as the server:
 ./run-local.sh            # builds, creates .env with a generated password, serves http://localhost:8000
 ./run-local.sh up         # same, in the background (then: logs, down)
 ./run-local.sh import config.yaml   # turn a CLI config into a saved search
-./run-local.sh reset      # stop and delete the local data volume
+./run-local.sh reset      # delete the local data volume (asks first)
 ```
 
-Add `DIGITRANSIT_API_KEY` to `.env` for public transport times.
+Add `DIGITRANSIT_API_KEY` to `.env` for public transport times. Saved searches,
+results and the route cache persist across `down`/`up` in the `househunt-local`
+Docker volume; only `reset` deletes them.
 
 On the server:
 

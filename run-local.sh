@@ -18,7 +18,7 @@ Usage: ./run-local.sh [command]
   down              stop
   logs              follow logs
   import FILE.yaml  create a saved search from a CLI config
-  reset             stop and delete the local data volume
+  reset [--yes]     stop and delete the local data volume (asks first)
 EOF
 }
 
@@ -72,6 +72,10 @@ case "${1:-}" in
       househunt python -m househunt web --import-config "/imports/$name"
     ;;
   reset)
+    if [ "${2:-}" != "--yes" ]; then
+      read -r -p "Delete all local searches, results and cached routes? Type 'delete' to confirm: " answer
+      [ "$answer" = "delete" ] || { echo "Nothing deleted."; exit 1; }
+    fi
     compose down -v
     ;;
   -h|--help|help)
