@@ -46,11 +46,27 @@ Environment:
 
 | Variable | Meaning |
 |---|---|
-| `HOUSEHUNT_PASSWORD` / `HOUSEHUNT_PASSWORD_FILE` | Sign-in password (required unless `--no-auth`) |
+| `HOUSEHUNT_PASSWORD` / `HOUSEHUNT_PASSWORD_FILE` | Admin password (required unless `--no-auth`) |
 | `DIGITRANSIT_API_KEY` | Public transport routing; without it only car times |
 | `HOUSEHUNT_DIGITRANSIT_RPS` | Digitransit requests per second (default 2) |
 | `HOUSEHUNT_DATA_DIR`, `HOUSEHUNT_HOST`, `HOUSEHUNT_PORT` | Defaults `data`, `127.0.0.1`, `8000` |
 | `HOUSEHUNT_TRUSTED_PROXIES` | Proxy addresses allowed to set forwarded headers |
+| `HOUSEHUNT_DEFAULT_DAILY_RUNS` | Manual runs per day for invited users (default 5) |
+| `HOUSEHUNT_DEFAULT_MAX_LISTINGS` | Listing cap per site for invited users (default 300) |
+| `HOUSEHUNT_FETCH_CACHE_HOURS` | How long fetched listing pages are reused (default 6) |
+
+### Accounts
+
+An account is just a password. `HOUSEHUNT_PASSWORD` is the admin's. Under
+**Admin**, create an invite link and send it; opening it creates the account and
+shows its generated password once. Each person sees only their own searches,
+including the admin. The admin can rename, disable or delete accounts, issue a
+new password (ends that person's sessions), and set per-user limits.
+
+Everyone shares the scraping budget: runs go through one queue, a person can
+have one run going at a time and a daily number of manual runs, and listing
+pages fetched with identical filters are reused for a few hours. Route times are
+cached for everyone.
 
 In the app: create a search (filters, destinations with address search, transit
 time, map colours, optional daily refresh), press **Run now**, and follow the

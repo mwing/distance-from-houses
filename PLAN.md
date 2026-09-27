@@ -78,7 +78,7 @@ unchecked box.
 - [x] `serve` command / `run --serve`: local HTTP server so OSM tiles load
 - [x] Unit tests for parsers / filter mapping (recorded fixtures)
 - [x] End-to-end run against live APIs (car only)
-- [ ] End-to-end run with Digitransit key
+- [x] End-to-end run with Digitransit key (2026-09-28, via the web app: 98/129 homes got transit times, 7 needed the `finland` router)
 - [x] README
 
 ### Progress & feedback
@@ -139,7 +139,7 @@ Tasks:
 - [x] Combined colour views: worst and weighted average of each destination's
       time as % of its limit (score mode per destination); worst is the default
 - [x] "Include" checkboxes for the combined views, remembered in localStorage
-- [ ] Visual check with transit times
+- [ ] Visual check of the map with transit times
 - [ ] Municipality filter misses village names from Etuovi ("Nummela" for Vihti);
       map villages → municipality or filter by postcode
 
@@ -276,14 +276,19 @@ Design:
 
 Tasks:
 - [x] Decide: local accounts vs proxy forward-auth → local accounts, password-only
-- [ ] Schema: users, sessions, invites; `profiles.user_id`; migrate existing data to admin
-- [ ] Auth: HMAC password lookup, DB sessions, global login throttle
-- [ ] Invite flow: admin creates link (label, expiry); redeem shows generated password once
-- [ ] Admin page: users (label, last seen, disable, regenerate password, quota), invites, run queue
-- [ ] Scope all profile/run/results/CSV endpoints by user; tests that user B gets 404 on A's data
-- [ ] Per-user quotas: one active run, daily run limit, `max_listings` cap
-- [ ] Listing fetch cache per (source, filters, day); grouped scheduled refreshes
-- [ ] Frontend: sign out everywhere; admin link in the top bar for the admin
+- [x] Schema: users, sessions, invites; `profiles.user_id`; migrate existing data to admin
+- [x] Auth: HMAC password lookup, DB sessions, global login throttle
+- [x] Invite flow: admin creates link (label, expiry); redeem shows generated password once
+- [x] Admin page: users (label, last seen, disable, regenerate password, quota), invites, run queue
+- [x] Scope all profile/run/results/CSV endpoints by user; tests that user B gets 404 on A's data
+- [x] Per-user quotas: one active run, daily run limit, `max_listings` cap
+- [x] Listing fetch cache per (source, filters, day); grouped scheduled refreshes
+- [x] Frontend: sign out everywhere; admin link in the top bar for the admin
+- [x] Grouped scheduled refreshes come from the fetch cache: same filters on the same
+      day hit the cache (TTL `HOUSEHUNT_FETCH_CACHE_HOURS`, default 6), no separate grouping
+- [x] Live check in the local container: migration moved the existing search to admin,
+      invite single-use (410 after), admin gets 404 on a user's search, quota counts,
+      an identical second search reused both sites' pages and all routes
 
 ### Later / ideas
 - [ ] More data points for the colour layer: extra sample points in sparse

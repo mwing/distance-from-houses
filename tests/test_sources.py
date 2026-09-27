@@ -109,3 +109,25 @@ def test_all_sources_failing_raises(monkeypatch):
     cfg = config_from_dict({"destinations": [{"name": "W", "lat": 60.2, "lon": 24.9}]}, env_api_key=False)
     with pytest.raises(RuntimeError, match="Every listing source failed"):
         pipeline.fetch_listings(cfg)
+
+
+def test_fetch_cache_hit_skips_the_site(monkeypatch, tmp_path):
+    from househunt import pipeline
+    from househunt.cache import Cache
+    from househunt.config import config_from_dict
+    from househunt.fetchcache import FetchCache
+
+    calls = []
+
+    def fetcher(filters, max_listings, progress=None):
+        calls.append(1)
+        return iter([oikotie.parse_card(load("oikotie_search.json")["cards"][0])])
+
+    monkeypatch.setattr(pipeline, "FETCHERS", {"oikotie": fetcher})
+    cfg = config_from_dict({"sources": ["oikotie"], "destinations": [{"name": "W", "lat": 60.2, "lon": 24.9}]},
+                           env_api_key=False)
+    fc = FetchCache(Cache(tmp_path / "c.sqlite"), ttl_hours=6)
+    first = pipeline.fetch_listings(cfg, fetch_cache=fc)
+    second = pipeline.fetch_listings(cfg, fetch_cache=fc)
+    assert len(calls) == 1
+    assert [l.id for l in first] == [l.id for l in second]

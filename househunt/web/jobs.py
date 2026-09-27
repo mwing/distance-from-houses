@@ -24,6 +24,9 @@ class ServerSettings:
     data_dir: Path
     digitransit_api_key: str | None
     digitransit_rps: float = 2.0
+    fetch_cache_hours: float = 6.0
+    default_daily_runs: int = 5
+    default_max_listings: int = 300
 
     @property
     def cache_path(self) -> Path:
@@ -31,8 +34,18 @@ class ServerSettings:
 
 
 class AlreadyRunning(Exception):
-    def __init__(self, run: dict):
+    def __init__(self, run: dict, message: str = "This search is already running"):
+        super().__init__(message)
         self.run = run
+
+
+class QuotaExceeded(Exception):
+    pass
+
+
+def local_midnight(now: dt.datetime | None = None) -> dt.datetime:
+    now = (now or dt.datetime.now(HELSINKI)).astimezone(HELSINKI)
+    return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 class JobManager:
@@ -62,11 +75,28 @@ class JobManager:
             for p in self._progress.values():
                 p.cancel.set()
 
-    def enqueue(self, profile_id: int, trigger: str = "manual") -> dict:
+    def daily_limit(self, user: dict) -> int | None:
+        if user["role"] == "admin":
+            return None
+        return user["daily_run_limit"] if user["daily_run_limit"] is not None else self.settings.default_daily_runs
+
+    def listing_cap(self, user: dict | None) -> int | None:
+        if not user or user["role"] == "admin":
+            return None
+        return user["max_listings"] if user["max_listings"] is not None else self.settings.default_max_listings
+
+    def enqueue(self, profile_id: int, trigger: str = "manual", user: dict | None = None) -> dict:
         with self._lock:
             active = self.store.active_run(profile_id)
             if active:
                 raise AlreadyRunning(active)
+            if user and trigger == "manual":
+                other = self.store.user_active_run(user["id"])
+                if other:
+                    raise AlreadyRunning(other, "Another of your searches is running; wait for it to finish")
+                limit = self.daily_limit(user)
+                if limit is not None and self.store.manual_runs_since(user["id"], local_midnight().isoformat()) >= limit:
+                    raise QuotaExceeded(f"Daily limit of {limit} runs reached; scheduled refreshes still happen")
             run = self.store.create_run(profile_id, trigger)
         self._queue.put(run["id"])
         return run
@@ -124,7 +154,11 @@ class JobManager:
             cfg.cache_path = self.settings.cache_path
             cfg.transit.api_key = self.settings.digitransit_api_key
             cfg.transit.requests_per_second = self.settings.digitransit_rps
-            results = run_pipeline(cfg, progress)
+            owner = self.store.get_user(profile["user_id"]) if profile["user_id"] else None
+            cap = self.listing_cap(owner)
+            if cap is not None:
+                cfg.max_listings = min(cfg.max_listings, cap)
+            results = run_pipeline(cfg, progress, fetch_cache_hours=self.settings.fetch_cache_hours)
             payload = build_payload(results, cfg.destinations, cfg.map)
             self.store.apply_history(profile["id"], payload)
             self.store.save_progress(run_id, progress.snapshot())
@@ -154,7 +188,7 @@ class JobManager:
     def schedule_due(self, now: dt.datetime | None = None) -> list[int]:
         now = (now or dt.datetime.now(HELSINKI)).astimezone(HELSINKI)
         started = []
-        for p in self.store.list_profiles():
+        for p in self.store.all_profiles():
             if not p["refresh_daily"]:
                 continue
             hour, minute = (int(x) for x in p["refresh_at"].split(":"))

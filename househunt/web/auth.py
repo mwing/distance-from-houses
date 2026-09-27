@@ -1,3 +1,4 @@
+import datetime as dt
 import hashlib
 import hmac
 import os
@@ -7,11 +8,15 @@ import time
 from pathlib import Path
 
 COOKIE = "househunt_session"
-SESSION_SECONDS = 30 * 24 * 3600
+SESSION_DAYS = 30
+SESSION_SECONDS = SESSION_DAYS * 24 * 3600
+INVITE_DAYS = 7
 KEY_BYTES = 32
 MAX_FAILURES = 5
 FAILURE_WINDOW = 60
 LOCKOUT_SECONDS = 60
+PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+PASSWORD_GROUPS = 5
 
 
 def load_secret(data_dir: Path) -> bytes:
@@ -29,8 +34,35 @@ def load_secret(data_dir: Path) -> bytes:
     return key
 
 
+class Hasher:
+    def __init__(self, secret: bytes):
+        self._secret = secret
+
+    def password(self, password: str) -> str:
+        # Keyed so a leaked database can't be checked against guesses offline; plain HMAC
+        # is enough because user passwords are generated with ~100 bits of entropy.
+        return hmac.new(self._secret, b"password:" + password.strip().encode(), hashlib.sha256).hexdigest()
+
+    @staticmethod
+    def token(token: str) -> str:
+        return hashlib.sha256(token.encode()).hexdigest()
+
+
+def generate_password() -> str:
+    groups = ("".join(secrets.choice(PASSWORD_ALPHABET) for _ in range(4)) for _ in range(PASSWORD_GROUPS))
+    return "-".join(groups)
+
+
+def new_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def expiry(days: int) -> str:
+    return (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=days)).isoformat(timespec="seconds")
+
+
 class LoginThrottle:
-    """Process-wide, not per client: there is one shared password to guess."""
+    """Process-wide, not per client: any password is a valid guess against every account."""
 
     def __init__(self):
         self._failures: list[float] = []
@@ -48,35 +80,3 @@ class LoginThrottle:
             if len(self._failures) >= MAX_FAILURES:
                 self._locked_until = now + LOCKOUT_SECONDS
                 self._failures = []
-
-
-class Auth:
-    def __init__(self, password: str | None, secret: bytes):
-        self.enabled = password is not None
-        self._password_digest = hashlib.sha256(password.encode()).digest() if password else b""
-        self._secret = secret
-        self.throttle = LoginThrottle()
-
-    def check_password(self, password: str) -> bool:
-        return self.enabled and hmac.compare_digest(hashlib.sha256(password.encode()).digest(), self._password_digest)
-
-    def _sign(self, expires: int) -> str:
-        # The password digest is part of the message so changing the password ends every session.
-        msg = f"session:{expires}".encode() + self._password_digest
-        return hmac.new(self._secret, msg, hashlib.sha256).hexdigest()
-
-    def issue(self) -> str:
-        expires = int(time.time()) + SESSION_SECONDS
-        return f"{expires}.{self._sign(expires)}"
-
-    def valid(self, token: str | None) -> bool:
-        if not self.enabled:
-            return True
-        if not token or "." not in token:
-            return False
-        expires_s, sig = token.split(".", 1)
-        if not (expires_s.isascii() and expires_s.isdigit() and sig.isascii()):
-            return False
-        if int(expires_s) < time.time():
-            return False
-        return hmac.compare_digest(sig, self._sign(int(expires_s)))

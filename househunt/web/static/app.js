@@ -1,8 +1,9 @@
 "use strict";
 
 const view = document.getElementById("view");
-const logoutBtn = document.getElementById("logout");
+const accountNav = document.getElementById("account");
 let meta = null;
+let session = null;
 let cleanup = () => {};
 
 class ApiError extends Error {
@@ -16,12 +17,12 @@ async function api(method, path, body) {
     body: body !== undefined ? JSON.stringify(body) : undefined,
     credentials: "same-origin",
   });
-  if (res.status === 401 && path !== "/api/login") {
+  if (res.status === 401 && path !== "/api/login" && !path.startsWith("/api/invites/")) {
     location.hash = "#/login";
     throw new ApiError(401, "Not signed in");
   }
   const data = res.status === 204 ? null : await res.json().catch(() => null);
-  if (!res.ok && res.status !== 409) {
+  if (!res.ok && !(res.status === 409 && data?.id)) {
     const detail = data?.detail;
     throw new ApiError(res.status, typeof detail === "string" ? detail : `Request failed (${res.status})`);
   }
@@ -59,17 +60,46 @@ function errorBox(message) {
   return h("div", {class: "error", role: "alert"}, message);
 }
 
+function renderAccount() {
+  const u = session?.user;
+  if (!u) { accountNav.hidden = true; return; }
+  if (!session.auth_required) {
+    accountNav.replaceChildren(u.role === "admin" ? h("a", {href: "#/admin"}, "Admin") : "");
+    accountNav.hidden = false;
+    return;
+  }
+  const signOut = async everywhere => {
+    await api("POST", everywhere ? "/api/logout-everywhere" : "/api/logout").catch(() => {});
+    meta = null; session = null;
+    location.hash = "#/login";
+  };
+  accountNav.replaceChildren(
+    u.role === "admin" ? h("a", {href: "#/admin"}, "Admin") : null,
+    h("span", {class: "muted"}, u.label),
+    h("button", {type: "button", class: "link", onclick: () => signOut(false)}, "Sign out"),
+    h("button", {type: "button", class: "link", onclick: () => signOut(true), title: "Ends your sessions on all devices"}, "Sign out everywhere"),
+  );
+  accountNav.hidden = false;
+}
+
+async function loadSession() {
+  session = (await api("GET", "/api/session")).data;
+  renderAccount();
+  return session;
+}
+
 async function route() {
   const hash = location.hash || "#/";
   try {
+    let m;
+    if ((m = hash.match(/^#\/invite\/([A-Za-z0-9_-]+)$/))) return viewInvite(m[1]);
     if (!meta && hash !== "#/login") {
-      const s = (await api("GET", "/api/session")).data;
-      logoutBtn.hidden = !s.auth_required;
+      const s = await loadSession();
       if (s.auth_required && !s.authenticated) { location.hash = "#/login"; return; }
       meta = (await api("GET", "/api/meta")).data;
     }
-    let m;
-    if (hash === "#/login") return viewLogin();
+    if (hash === "#/login") { accountNav.hidden = true; return viewLogin(); }
+    if (hash === "#/admin") return viewAdmin();
     if (hash === "#/" || hash === "#") return viewProfiles();
     if (hash === "#/new") return viewSettings(null);
     if ((m = hash.match(/^#\/p\/(\d+)$/))) return viewResults(+m[1]);
@@ -80,11 +110,6 @@ async function route() {
   }
 }
 window.addEventListener("hashchange", route);
-logoutBtn.addEventListener("click", async () => {
-  await api("POST", "/api/logout").catch(() => {});
-  meta = null;
-  location.hash = "#/login";
-});
 
 function viewLogin() {
   const pw = h("input", {type: "password", autocomplete: "current-password", required: true, "aria-label": "Password"});
@@ -107,6 +132,159 @@ function viewLogin() {
   );
   show(form);
   pw.focus();
+}
+
+function copyButton(getText, label = "Copy") {
+  const btn = h("button", {type: "button"}, label);
+  btn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(getText());
+      btn.textContent = "Copied";
+    } catch (e) {
+      btn.textContent = "Select and copy manually";
+    }
+    setTimeout(() => { btn.textContent = label; }, 2000);
+  });
+  return btn;
+}
+
+function secretBox(text) {
+  return h("div", {class: "secret"}, h("code", {}, text), copyButton(() => text));
+}
+
+async function viewInvite(token) {
+  accountNav.hidden = true;
+  const err = h("div");
+  let invite;
+  try {
+    invite = (await api("GET", `/api/invites/${token}`)).data;
+  } catch (e) {
+    return show(h("div", {class: "card login"}, h("h1", {}, "Invite"), errorBox(e.message),
+      h("a", {class: "button", href: "#/login"}, "Go to sign in")));
+  }
+  const create = h("button", {type: "button", class: "primary"}, "Create my account");
+  const card = h("div", {class: "card login"},
+    h("h1", {}, `Welcome, ${invite.label}`),
+    h("p", {}, "This invite creates your own househunt account. Your searches are private to you."),
+    h("p", {class: "muted"}, "You'll get a password on the next screen. It's the only way to sign in, so save it in your password manager."),
+    err, create);
+  create.addEventListener("click", async () => {
+    create.disabled = true;
+    try {
+      const {password} = (await api("POST", `/api/invites/${token}/redeem`)).data;
+      const saved = h("input", {type: "checkbox"});
+      const cont = h("button", {type: "button", class: "primary", disabled: true}, "Continue");
+      saved.addEventListener("change", () => { cont.disabled = !saved.checked; });
+      cont.addEventListener("click", () => { meta = null; location.hash = "#/"; });
+      card.replaceChildren(
+        h("h1", {}, "Your password"),
+        h("p", {}, "Save this now. It won't be shown again; if you lose it, ask the admin for a new one."),
+        secretBox(password),
+        h("label", {}, saved, "I've saved my password"),
+        cont);
+    } catch (e) {
+      create.disabled = false;
+      err.replaceChildren(errorBox(e.message));
+    }
+  });
+  show(card);
+}
+
+async function viewAdmin() {
+  if (session?.user?.role !== "admin") { location.hash = "#/"; return; }
+  const [{data: users}, {data: invites}, {data: queue}] = await Promise.all([
+    api("GET", "/api/admin/users"), api("GET", "/api/admin/invites"), api("GET", "/api/admin/queue"),
+  ]);
+  const refresh = () => viewAdmin();
+
+  const label = h("input", {type: "text", placeholder: "Who is it for, e.g. Mum", maxlength: 60});
+  const inviteOut = h("div");
+  const inviteForm = h("form", {class: "row", onsubmit: async e => {
+    e.preventDefault();
+    inviteOut.replaceChildren();
+    try {
+      const inv = (await api("POST", "/api/admin/invites", {label: label.value})).data;
+      const url = location.origin + inv.path;
+      inviteOut.replaceChildren(
+        h("p", {}, `Send this link to ${inv.label}. It works once and expires ${fmtTime(inv.expires_at)}.`),
+        secretBox(url));
+      label.value = "";
+      pendingList(await api("GET", "/api/admin/invites").then(r => r.data));
+    } catch (ex) {
+      inviteOut.replaceChildren(errorBox(ex.message));
+    }
+  }}, h("label", {class: "field"}, h("span", {}, "Label"), label), h("button", {class: "primary", type: "submit"}, "Create invite link"));
+
+  const pending = h("div");
+  const pendingList = list => pending.replaceChildren(
+    list.length ? h("ul", {class: "plain"}, list.map(inv => h("li", {},
+      `${inv.label} · expires ${fmtTime(inv.expires_at)} `,
+      h("button", {type: "button", class: "link danger", onclick: async () => {
+        await api("DELETE", `/api/admin/invites/${inv.id}`); refresh();
+      }}, "Revoke")))) : h("p", {class: "muted"}, "No pending invites."));
+  pendingList(invites);
+
+  const userRows = users.users.map(u => {
+    const isAdmin = u.role === "admin";
+    const note = h("div");
+    const daily = h("input", {type: "number", min: 0, max: 100, step: 1, value: u.daily_run_limit ?? "",
+      placeholder: String(users.defaults.daily_run_limit), disabled: isAdmin, "aria-label": "Daily runs"});
+    const maxL = h("input", {type: "number", min: 0, max: 5000, step: 10, value: u.max_listings ?? "",
+      placeholder: String(users.defaults.max_listings), disabled: isAdmin, "aria-label": "Max listings"});
+    const name = h("input", {type: "text", value: u.label, maxlength: 60, "aria-label": "Label"});
+    const save = h("button", {type: "button"}, "Save");
+    save.addEventListener("click", async () => {
+      const body = {label: name.value};
+      if (!isAdmin) {
+        body.daily_run_limit = daily.value === "" ? null : Number(daily.value);
+        body.max_listings = maxL.value === "" ? null : Number(maxL.value);
+      }
+      try { await api("PATCH", `/api/admin/users/${u.id}`, body); refresh(); }
+      catch (e) { note.replaceChildren(errorBox(e.message)); }
+    });
+    const actions = isAdmin ? [h("span", {class: "muted"}, "Password from HOUSEHUNT_PASSWORD")] : [
+      h("button", {type: "button", onclick: async () => {
+        const {password} = (await api("POST", `/api/admin/users/${u.id}/password`)).data;
+        note.replaceChildren(h("p", {}, `New password for ${u.label}; their old one and sessions stop working:`), secretBox(password));
+      }}, "New password"),
+      h("button", {type: "button", onclick: async () => {
+        await api("PATCH", `/api/admin/users/${u.id}`, {disabled: !u.disabled}); refresh();
+      }}, u.disabled ? "Enable" : "Disable"),
+      (() => {
+        const del = h("button", {type: "button", class: "danger"}, "Delete");
+        let armed = false;
+        del.addEventListener("click", async () => {
+          if (!armed) { armed = true; del.textContent = "Confirm: delete user and searches"; setTimeout(() => { armed = false; del.textContent = "Delete"; }, 4000); return; }
+          await api("DELETE", `/api/admin/users/${u.id}`); refresh();
+        });
+        return del;
+      })(),
+    ];
+    return h("div", {class: `card user-card${u.disabled ? " disabled" : ""}`},
+      h("div", {class: "row"},
+        h("label", {class: "field"}, h("span", {}, isAdmin ? "Admin" : (u.disabled ? "Disabled" : "User")), name),
+        isAdmin ? h("div", {class: "field"}, h("span", {}, "Limits"), "No run or listing limits") : [
+          h("label", {class: "field"}, h("span", {}, "Daily runs"), daily),
+          h("label", {class: "field"}, h("span", {}, "Max listings"), maxL)],
+        save),
+      h("div", {class: "muted status"}, `${u.searches} searches · last seen ${fmtTime(u.last_seen_at) || "never"} · joined ${fmtTime(u.created_at)}`),
+      h("div", {class: "actions"}, actions),
+      note);
+  });
+
+  const queueList = queue.length
+    ? h("ul", {class: "plain"}, queue.map(r => h("li", {}, `${r.user_label}: ${STATUS_LABEL[r.status] || r.status} (${r.trigger})`
+        + (r.progress?.phase ? ` · ${PHASES[r.progress.phase] || r.progress.phase}` : ""))))
+    : h("p", {class: "muted"}, "Nothing running.");
+
+  show(
+    h("div", {class: "page-head"}, h("h1", {}, "Admin")),
+    h("fieldset", {}, h("legend", {}, "Invite someone"), inviteForm, inviteOut, h("h2", {class: "sub"}, "Pending invites"), pending),
+    h("fieldset", {}, h("legend", {}, "Users"),
+      h("p", {class: "hint"}, "Empty limits use the server defaults (shown greyed). Searches are private: you can manage accounts but not see their searches."),
+      h("div", {class: "user-list"}, userRows)),
+    h("fieldset", {}, h("legend", {}, "Run queue"), queueList),
+  );
 }
 
 const STATUS_LABEL = {queued: "Queued", running: "Running", done: "Updated", failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted"};
@@ -231,7 +409,9 @@ async function viewSettings(profileId) {
 
   const name = h("input", {type: "text", value: profile?.name || "", required: true, maxlength: 100, placeholder: "e.g. Family house"});
   const sources = chipGroup("sources", ["oikotie", "etuovi"], s.sources || ["oikotie", "etuovi"]);
-  const maxListings = numberField("Max listings per site", s.max_listings ?? 300, {min: 1, max: 5000, step: 1});
+  const cap = session?.user?.max_listings;
+  const maxListings = numberField(cap ? `Max listings per site (your limit ${cap})` : "Max listings per site",
+    s.max_listings ?? 300, {min: 1, max: 5000, step: 1});
 
   const houseTypes = chipGroup("house_types", meta.house_types, f.house_types || []);
   const rooms = chipGroup("rooms", [1, 2, 3, 4, 5], f.rooms || [], r => r === 5 ? "5+" : String(r));
@@ -373,12 +553,17 @@ async function viewResults(profileId) {
   const cancelBtn = h("button", {type: "button", hidden: true}, "Cancel run");
   const csv = h("a", {class: "button", href: `/api/profiles/${profileId}/results.csv`, hidden: true}, "Download CSV");
   const summaryEl = h("div", {class: "muted"});
+  const quotaEl = h("div", {class: "muted status"});
+  const showQuota = u => {
+    quotaEl.textContent = u?.daily_run_limit != null ? `Runs today: ${u.runs_today} of ${u.daily_run_limit}` : "";
+  };
+  showQuota(session?.user);
   let handle = null, timer = null, activeRun = null, alive = true;
 
   show(
     h("div", {class: "page-head"},
       h("div", {}, h("h1", {}, profile.name), summaryEl),
-      h("div", {class: "actions"}, runBtn, cancelBtn, h("a", {class: "button", href: `#/p/${profileId}/edit`}, "Edit"), csv)),
+      h("div", {}, h("div", {class: "actions"}, runBtn, cancelBtn, h("a", {class: "button", href: `#/p/${profileId}/edit`}, "Edit"), csv), quotaEl)),
     status, resultsEl,
   );
   cleanup = () => { alive = false; clearTimeout(timer); handle?.destroy(); };
@@ -428,6 +613,7 @@ async function viewResults(profileId) {
       const {data} = await api("POST", `/api/profiles/${profileId}/runs`);
       setRunning(data);
       poll();
+      loadSession().then(s => showQuota(s.user)).catch(() => {});
     } catch (e) {
       runBtn.disabled = false;
       status.replaceChildren(errorBox(e.message));

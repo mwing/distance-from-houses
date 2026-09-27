@@ -8,7 +8,6 @@ from househunt.pipeline import Result
 from househunt.web import app as web_app
 from househunt.web import jobs as web_jobs
 from househunt.web import store as web_store
-from househunt.web.auth import Auth
 from househunt.web.jobs import HELSINKI, ServerSettings
 
 SETTINGS = {
@@ -29,8 +28,9 @@ class FakePipeline:
         self.listings = [listing("1", 400000), listing("2", 500000)]
         self.calls = 0
 
-    def __call__(self, cfg, progress):
+    def __call__(self, cfg, progress, **kwargs):
         self.calls += 1
+        self.last_cfg = cfg
         for d in cfg.destinations:
             d.in_uusimaa = True
         progress.start("car", 1)
@@ -43,7 +43,7 @@ def env(tmp_path, monkeypatch):
     fake = FakePipeline()
     monkeypatch.setattr(web_jobs, "run_pipeline", fake)
     settings = ServerSettings(data_dir=tmp_path, digitransit_api_key=None)
-    app = web_app.create_app(settings, Auth("s3cret", b"k" * 32), start_jobs=False)
+    app = web_app.create_app(settings, "s3cret", b"k" * 32, start_jobs=False)
     client = TestClient(app, base_url="https://testserver")
     return client, app, fake
 
@@ -69,7 +69,7 @@ def run_now(client, app, profile_id):
 def test_api_requires_login(env):
     client, _, _ = env
     assert client.get("/api/profiles").status_code == 401
-    assert client.get("/api/session").json() == {"auth_required": True, "authenticated": False}
+    assert client.get("/api/session").json() == {"auth_required": True, "authenticated": False, "user": None}
     assert client.post("/api/login", json={"password": "nope"}).status_code == 401
     login(client)
     assert client.get("/api/profiles").status_code == 200
@@ -147,7 +147,7 @@ def test_failed_run_reports_error(env, monkeypatch):
     login(client)
     p = create(client)
 
-    def boom(cfg, progress):
+    def boom(cfg, progress, **kwargs):
         raise RuntimeError("Oikotie changed its API")
 
     monkeypatch.setattr(web_jobs, "run_pipeline", boom)
@@ -225,10 +225,16 @@ def test_malformed_cookies_are_rejected_not_500(env):
         assert client.get("/api/profiles", headers=[(b"cookie", raw)]).status_code == 401
 
 
-def test_changing_password_ends_sessions(tmp_path):
-    old, new = Auth("one", b"k" * 32), Auth("two", b"k" * 32)
-    token = old.issue()
-    assert old.valid(token) and not new.valid(token)
+def test_changing_admin_password_ends_admin_sessions(tmp_path):
+    settings = ServerSettings(data_dir=tmp_path, digitransit_api_key=None)
+    old = TestClient(web_app.create_app(settings, "one", b"k" * 32, start_jobs=False), base_url="https://testserver")
+    assert old.post("/api/login", json={"password": "one"}).status_code == 200
+    cookie = old.cookies.get("househunt_session")
+    new = TestClient(web_app.create_app(settings, "two", b"k" * 32, start_jobs=False), base_url="https://testserver")
+    new.cookies.set("househunt_session", cookie)
+    assert new.get("/api/profiles").status_code == 401
+    assert new.post("/api/login", json={"password": "one"}).status_code == 401
+    assert new.post("/api/login", json={"password": "two"}).status_code == 200
 
 
 def test_login_locks_after_repeated_failures(env, monkeypatch):
@@ -298,7 +304,7 @@ def test_shutdown_marks_run_interrupted_and_scheduler_retries_once(env, monkeypa
     later = dt.datetime(2026, 9, 28, 6, 1, tzinfo=HELSINKI)
     monkeypatch.setattr(web_store, "now_iso", lambda: later.isoformat())
 
-    def stopped(cfg, progress):
+    def stopped(cfg, progress, **kwargs):
         jobs.stop()
         progress.check()
 

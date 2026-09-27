@@ -22,6 +22,14 @@ class Cache:
         with self._lock:
             return self._db.execute("SELECT 1 FROM kv WHERE ns = ? AND key = ?", (ns, key)).fetchone() is not None
 
+    def delete_namespaces(self, prefix: str, keep: set[str]) -> None:
+        with self._lock:
+            rows = self._db.execute("SELECT DISTINCT ns FROM kv WHERE ns LIKE ?", (prefix + "%",)).fetchall()
+            for (ns,) in rows:
+                if ns not in keep:
+                    self._db.execute("DELETE FROM kv WHERE ns = ?", (ns,))
+            self._db.commit()
+
     def set(self, ns: str, key: str, value) -> None:
         with self._lock:
             self._db.execute("INSERT OR REPLACE INTO kv VALUES (?, ?, ?)", (ns, key, json.dumps(value)))

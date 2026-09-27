@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 
 from .cache import Cache
 from .config import Config
+from .fetchcache import FetchCache
 from .geocode import Geocoder
 from .models import Destination, Listing
 from .progress import Cancelled, Progress
@@ -22,12 +23,18 @@ class Result:
     too_far: bool = False
 
 
-def fetch_listings(cfg: Config, progress: Progress | None = None) -> list[Listing]:
+def fetch_listings(cfg: Config, progress: Progress | None = None, fetch_cache: FetchCache | None = None) -> list[Listing]:
     progress = progress or Progress()
     listings: list[Listing] = []
     failures = []
     for source in cfg.sources:
         progress.start(f"fetch {source}")
+        cached = fetch_cache.get(source, cfg.filters, cfg.max_listings) if fetch_cache else None
+        if cached is not None:
+            log.info("%s: %d listings (reused from an earlier fetch)", source, len(cached))
+            progress.note(f"{len(cached)} listings, reused")
+            listings.extend(cached)
+            continue
         try:
             got = list(FETCHERS[source](cfg.filters, cfg.max_listings, progress=progress))
         except Cancelled:
@@ -37,6 +44,8 @@ def fetch_listings(cfg: Config, progress: Progress | None = None) -> list[Listin
             failures.append(f"{source}: {e}")
             continue
         log.info("%s: %d listings", source, len(got))
+        if fetch_cache:
+            fetch_cache.put(source, cfg.filters, cfg.max_listings, got)
         listings.extend(got)
     if failures and len(failures) == len(cfg.sources):
         raise RuntimeError("Every listing source failed: " + "; ".join(failures))
@@ -84,7 +93,7 @@ def _format_times(times: dict[str, dict[str, float | None]], dests: list[Destina
     return "; ".join(parts)
 
 
-def run(cfg: Config, progress: Progress | None = None) -> list[Result]:
+def run(cfg: Config, progress: Progress | None = None, fetch_cache_hours: float | None = None) -> list[Result]:
     progress = progress or Progress()
     cache = Cache(cfg.cache_path)
     geocoder = Geocoder(cache)
@@ -97,7 +106,8 @@ def run(cfg: Config, progress: Progress | None = None) -> list[Result]:
     for d in dests:
         log.info("Destination %s at %.5f,%.5f (%s)", d.name, d.lat, d.lon, "Uusimaa" if d.in_uusimaa else "outside Uusimaa")
 
-    listings = fetch_listings(cfg, progress)
+    fetch_cache = FetchCache(cache, fetch_cache_hours) if fetch_cache_hours else None
+    listings = fetch_listings(cfg, progress, fetch_cache)
     if not listings:
         return []
 

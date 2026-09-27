@@ -31,6 +31,33 @@ CREATE TABLE IF NOT EXISTS runs (
   result TEXT
 );
 CREATE INDEX IF NOT EXISTS runs_profile ON runs(profile_id, id);
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  label TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+  secret_hash TEXT NOT NULL UNIQUE,
+  disabled INTEGER NOT NULL DEFAULT 0,
+  daily_run_limit INTEGER,
+  max_listings INTEGER,
+  created_at TEXT NOT NULL,
+  last_seen_at TEXT
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS invites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  used_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
 CREATE TABLE IF NOT EXISTS listings (
   profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   key TEXT NOT NULL,
@@ -77,7 +104,14 @@ class Store:
             self._db.execute("PRAGMA journal_mode=WAL")
             self._db.execute("PRAGMA foreign_keys=ON")
             self._db.executescript(SCHEMA)
+            self._migrate()
             self._db.commit()
+
+    def _migrate(self) -> None:
+        cols = {r["name"] for r in self._db.execute("PRAGMA table_info(profiles)")}
+        if "user_id" not in cols:
+            self._db.execute("ALTER TABLE profiles ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE")
+        self._db.execute("CREATE INDEX IF NOT EXISTS profiles_user ON profiles(user_id)")
 
     def _exec(self, sql: str, params=()) -> sqlite3.Cursor:
         with self._lock:
@@ -97,6 +131,7 @@ class Store:
     def _profile(row: sqlite3.Row) -> dict:
         return {
             "id": row["id"],
+            "user_id": row["user_id"],
             "name": row["name"],
             "settings": json.loads(row["settings"]),
             "refresh_daily": bool(row["refresh_daily"]),
@@ -105,33 +140,193 @@ class Store:
             "updated_at": row["updated_at"],
         }
 
-    def list_profiles(self) -> list[dict]:
-        profiles = [self._profile(r) for r in self._all("SELECT * FROM profiles ORDER BY name COLLATE NOCASE")]
+    def list_profiles(self, user_id: int) -> list[dict]:
+        rows = self._all("SELECT * FROM profiles WHERE user_id = ? ORDER BY name COLLATE NOCASE", (user_id,))
+        profiles = [self._profile(r) for r in rows]
         for p in profiles:
             p["last_run"] = self.last_run(p["id"])
         return profiles
 
-    def get_profile(self, profile_id: int) -> dict | None:
-        row = self._one("SELECT * FROM profiles WHERE id = ?", (profile_id,))
+    def all_profiles(self) -> list[dict]:
+        rows = self._all("SELECT p.* FROM profiles p JOIN users u ON u.id = p.user_id WHERE u.disabled = 0")
+        return [self._profile(r) for r in rows]
+
+    def get_profile(self, profile_id: int, user_id: int | None = None) -> dict | None:
+        """With user_id, returns None for another user's profile; without, for internal callers only."""
+        if user_id is None:
+            row = self._one("SELECT * FROM profiles WHERE id = ?", (profile_id,))
+        else:
+            row = self._one("SELECT * FROM profiles WHERE id = ? AND user_id = ?", (profile_id, user_id))
         return self._profile(row) if row else None
 
-    def create_profile(self, name: str, settings: dict, refresh_daily: bool, refresh_at: str) -> dict:
+    def create_profile(self, user_id: int | None, name: str, settings: dict, refresh_daily: bool, refresh_at: str) -> dict:
         ts = now_iso()
         cur = self._exec(
-            "INSERT INTO profiles (name, settings, refresh_daily, refresh_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (name, json.dumps(settings, ensure_ascii=False), int(refresh_daily), refresh_at, ts, ts),
+            "INSERT INTO profiles (user_id, name, settings, refresh_daily, refresh_at, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, name, json.dumps(settings, ensure_ascii=False), int(refresh_daily), refresh_at, ts, ts),
         )
         return self.get_profile(cur.lastrowid)
 
-    def update_profile(self, profile_id: int, name: str, settings: dict, refresh_daily: bool, refresh_at: str) -> dict | None:
+    def update_profile(self, profile_id: int, user_id: int, name: str, settings: dict, refresh_daily: bool,
+                       refresh_at: str) -> dict | None:
         self._exec(
-            "UPDATE profiles SET name = ?, settings = ?, refresh_daily = ?, refresh_at = ?, updated_at = ? WHERE id = ?",
-            (name, json.dumps(settings, ensure_ascii=False), int(refresh_daily), refresh_at, now_iso(), profile_id),
+            "UPDATE profiles SET name = ?, settings = ?, refresh_daily = ?, refresh_at = ?, updated_at = ? "
+            "WHERE id = ? AND user_id = ?",
+            (name, json.dumps(settings, ensure_ascii=False), int(refresh_daily), refresh_at, now_iso(), profile_id, user_id),
         )
-        return self.get_profile(profile_id)
+        return self.get_profile(profile_id, user_id)
 
-    def delete_profile(self, profile_id: int) -> bool:
-        return self._exec("DELETE FROM profiles WHERE id = ?", (profile_id,)).rowcount > 0
+    def delete_profile(self, profile_id: int, user_id: int) -> bool:
+        return self._exec("DELETE FROM profiles WHERE id = ? AND user_id = ?", (profile_id, user_id)).rowcount > 0
+
+    # Users are identified by their password alone, so secret_hash is the lookup key.
+
+    @staticmethod
+    def _user(row: sqlite3.Row) -> dict:
+        return {
+            "id": row["id"],
+            "label": row["label"],
+            "role": row["role"],
+            "disabled": bool(row["disabled"]),
+            "daily_run_limit": row["daily_run_limit"],
+            "max_listings": row["max_listings"],
+            "created_at": row["created_at"],
+            "last_seen_at": row["last_seen_at"],
+        }
+
+    def ensure_admin(self, secret_hash: str) -> dict:
+        with self._lock, self._db:
+            row = self._db.execute("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").fetchone()
+            if row is None:
+                cur = self._db.execute(
+                    "INSERT INTO users (label, role, secret_hash, created_at) VALUES ('Admin', 'admin', ?, ?)",
+                    (secret_hash, now_iso()),
+                )
+                admin_id = cur.lastrowid
+            else:
+                admin_id = row["id"]
+                if row["secret_hash"] != secret_hash:
+                    self._db.execute("UPDATE users SET secret_hash = ? WHERE id = ?", (secret_hash, admin_id))
+                    self._db.execute("DELETE FROM sessions WHERE user_id = ?", (admin_id,))
+            self._db.execute("UPDATE profiles SET user_id = ? WHERE user_id IS NULL", (admin_id,))
+        return self.get_user(admin_id)
+
+    def admin_id(self) -> int | None:
+        row = self._one("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1")
+        return row["id"] if row else None
+
+    def get_user(self, user_id: int) -> dict | None:
+        row = self._one("SELECT * FROM users WHERE id = ?", (user_id,))
+        return self._user(row) if row else None
+
+    def user_by_secret(self, secret_hash: str) -> dict | None:
+        row = self._one("SELECT * FROM users WHERE secret_hash = ? AND disabled = 0", (secret_hash,))
+        return self._user(row) if row else None
+
+    def create_user(self, label: str, secret_hash: str, daily_run_limit: int | None, max_listings: int | None) -> dict:
+        cur = self._exec(
+            "INSERT INTO users (label, role, secret_hash, daily_run_limit, max_listings, created_at) "
+            "VALUES (?, 'user', ?, ?, ?, ?)",
+            (label, secret_hash, daily_run_limit, max_listings, now_iso()),
+        )
+        return self.get_user(cur.lastrowid)
+
+    def list_users(self) -> list[dict]:
+        users = [self._user(r) for r in self._all("SELECT * FROM users ORDER BY role, label COLLATE NOCASE")]
+        for u in users:
+            u["searches"] = self._one("SELECT COUNT(*) AS n FROM profiles WHERE user_id = ?", (u["id"],))["n"]
+        return users
+
+    def update_user(self, user_id: int, **fields) -> dict | None:
+        allowed = {"label", "disabled", "daily_run_limit", "max_listings", "secret_hash"}
+        sets = {k: v for k, v in fields.items() if k in allowed}
+        if sets:
+            cols = ", ".join(f"{k} = ?" for k in sets)
+            self._exec(f"UPDATE users SET {cols} WHERE id = ?", (*sets.values(), user_id))
+        if sets.get("disabled") or "secret_hash" in sets:
+            self.delete_sessions(user_id)
+        return self.get_user(user_id)
+
+    def delete_user(self, user_id: int) -> bool:
+        return self._exec("DELETE FROM users WHERE id = ? AND role != 'admin'", (user_id,)).rowcount > 0
+
+    def touch_user(self, user_id: int) -> None:
+        self._exec("UPDATE users SET last_seen_at = ? WHERE id = ?", (now_iso(), user_id))
+
+    def create_session(self, token_hash: str, user_id: int, expires_at: str) -> None:
+        ts = now_iso()
+        self._exec(
+            "INSERT INTO sessions (token_hash, user_id, created_at, expires_at, last_seen_at) VALUES (?, ?, ?, ?, ?)",
+            (token_hash, user_id, ts, expires_at, ts),
+        )
+
+    def session_user(self, token_hash: str) -> dict | None:
+        row = self._one(
+            "SELECT u.*, s.last_seen_at AS session_seen FROM sessions s JOIN users u ON u.id = s.user_id "
+            "WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled = 0",
+            (token_hash, now_iso()),
+        )
+        if not row:
+            return None
+        user = self._user(row)
+        user["session_seen"] = row["session_seen"]
+        return user
+
+    def touch_session(self, token_hash: str) -> None:
+        self._exec("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?", (now_iso(), token_hash))
+
+    def delete_session(self, token_hash: str) -> None:
+        self._exec("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+
+    def delete_sessions(self, user_id: int) -> None:
+        self._exec("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+
+    def prune_sessions(self) -> None:
+        self._exec("DELETE FROM sessions WHERE expires_at <= ?", (now_iso(),))
+
+    def create_invite(self, token_hash: str, label: str, expires_at: str) -> dict:
+        cur = self._exec(
+            "INSERT INTO invites (token_hash, label, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (token_hash, label, now_iso(), expires_at),
+        )
+        return self._invite(self._one("SELECT * FROM invites WHERE id = ?", (cur.lastrowid,)))
+
+    @staticmethod
+    def _invite(row: sqlite3.Row) -> dict:
+        return {k: row[k] for k in ("id", "label", "created_at", "expires_at", "used_at", "used_by")}
+
+    def pending_invites(self) -> list[dict]:
+        rows = self._all("SELECT * FROM invites WHERE used_at IS NULL AND expires_at > ? ORDER BY id DESC", (now_iso(),))
+        return [self._invite(r) for r in rows]
+
+    def open_invite(self, token_hash: str) -> dict | None:
+        row = self._one(
+            "SELECT * FROM invites WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?", (token_hash, now_iso())
+        )
+        return self._invite(row) if row else None
+
+    def redeem_invite(self, token_hash: str, secret_hash: str, daily_run_limit: int | None,
+                      max_listings: int | None) -> dict | None:
+        """Creates the user and consumes the invite atomically; None if it was already used or expired."""
+        with self._lock, self._db:
+            ts = now_iso()
+            row = self._db.execute(
+                "SELECT * FROM invites WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?", (token_hash, ts)
+            ).fetchone()
+            if not row:
+                return None
+            cur = self._db.execute(
+                "INSERT INTO users (label, role, secret_hash, daily_run_limit, max_listings, created_at) "
+                "VALUES (?, 'user', ?, ?, ?, ?)",
+                (row["label"], secret_hash, daily_run_limit, max_listings, ts),
+            )
+            self._db.execute("UPDATE invites SET used_at = ?, used_by = ? WHERE id = ?", (ts, cur.lastrowid, row["id"]))
+            user_id = cur.lastrowid
+        return self.get_user(user_id)
+
+    def delete_invite(self, invite_id: int) -> bool:
+        return self._exec("DELETE FROM invites WHERE id = ? AND used_at IS NULL", (invite_id,)).rowcount > 0
 
     @staticmethod
     def _run(row: sqlite3.Row) -> dict:
@@ -155,9 +350,39 @@ class Store:
         )
         return self.get_run(cur.lastrowid)
 
-    def get_run(self, run_id: int) -> dict | None:
-        row = self._one("SELECT * FROM runs WHERE id = ?", (run_id,))
+    def get_run(self, run_id: int, user_id: int | None = None) -> dict | None:
+        if user_id is None:
+            row = self._one("SELECT * FROM runs WHERE id = ?", (run_id,))
+        else:
+            row = self._one(
+                "SELECT r.* FROM runs r JOIN profiles p ON p.id = r.profile_id WHERE r.id = ? AND p.user_id = ?",
+                (run_id, user_id),
+            )
         return self._run(row) if row else None
+
+    def user_active_run(self, user_id: int) -> dict | None:
+        row = self._one(
+            "SELECT r.* FROM runs r JOIN profiles p ON p.id = r.profile_id "
+            "WHERE p.user_id = ? AND r.status IN ('queued', 'running') ORDER BY r.id DESC LIMIT 1",
+            (user_id,),
+        )
+        return self._run(row) if row else None
+
+    def manual_runs_since(self, user_id: int, since_iso: str) -> int:
+        rows = self._all(
+            "SELECT r.created_at FROM runs r JOIN profiles p ON p.id = r.profile_id "
+            "WHERE p.user_id = ? AND r.trigger = 'manual'",
+            (user_id,),
+        )
+        since = dt.datetime.fromisoformat(since_iso)
+        return sum(1 for r in rows if dt.datetime.fromisoformat(r["created_at"]) >= since)
+
+    def queue(self) -> list[dict]:
+        rows = self._all(
+            "SELECT r.*, u.label AS user_label FROM runs r JOIN profiles p ON p.id = r.profile_id "
+            "JOIN users u ON u.id = p.user_id WHERE r.status IN ('queued', 'running') ORDER BY r.id"
+        )
+        return [{**self._run(r), "user_label": r["user_label"]} for r in rows]
 
     def last_run(self, profile_id: int) -> dict | None:
         row = self._one("SELECT * FROM runs WHERE profile_id = ? ORDER BY id DESC LIMIT 1", (profile_id,))
