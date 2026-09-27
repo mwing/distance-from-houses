@@ -238,43 +238,52 @@ Goal: a few invited people (family, friends) each with their own searches, on
 the same server. Not open sign-up: bulk fetching from Etuovi/Oikotie would get
 the server blocked, so load must stay close to single-user levels.
 
+Decisions (user, 2026-09-27): local accounts; an account is just a password,
+as today, no usernames; invite-only via admin-created links; reuse cached data
+across users but keep searches strictly separate.
+
 Design:
-- **Accounts:** users table (username, scrypt password hash via `hashlib.scrypt`,
-  role admin/user, disabled flag). The admin creates single-use invite links
-  (random token, stored hashed, 7-day expiry); the invitee sets a username and
-  password. No email needed.
-- **Sessions:** a sessions table (random token, hashed, user id, expiry, last
-  seen) replaces the stateless HMAC cookie so sessions can be revoked
-  ("sign out everywhere", disabling a user ends their sessions).
-- **Ownership:** `profiles.user_id`; every profile, run and results endpoint
-  filters by the signed-in user and returns 404 for others' data. Admin sees
-  everything read-only plus the run queue.
-- **Bootstrap/migration:** first start with users table empty creates the admin
-  from `HOUSEHUNT_PASSWORD` (or `househunt web --create-admin`); existing
-  profiles are assigned to that admin.
-- **Scrape budget (the real constraint):**
-  - Keep the single worker and the global per-service rate limiters for all users.
-  - Per user: at most one queued/running run; daily run quota (admin-set, default ~5).
-  - Listing fetch cache keyed by (source, normalized server-side filters, date):
-    identical filter sets on the same day reuse pages instead of re-fetching.
-  - Scheduled refreshes grouped: each distinct filter set fetched once per day,
-    routed per profile (routes already shared via the cache).
-  - `max_listings` capped per role.
-- **Alternative if the server already has one:** trust a forward-auth header
-  from Tailscale Serve / Authelia / oauth2-proxy (only from
-  `HOUSEHUNT_TRUSTED_PROXIES`) instead of local accounts; ownership and quotas
-  stay the same.
+- **Account = password.** Users table: id, label (admin-set, e.g. "Mum", only
+  shown to the admin), role admin/user, disabled flag, created/last-seen.
+- **Passwords are generated, not chosen:** redeeming an invite shows a random
+  passphrase once (e.g. 5 words from a word list or 20 random chars, ≥ 100 bits).
+  This rules out two users picking the same password, and weak ones.
+- **Lookup by password:** store `HMAC-SHA256(server_secret, password)` with a
+  unique index; sign-in hashes the input and looks it up directly. Plain HMAC is
+  enough because generated passwords are high-entropy (no scrypt needed); the
+  server secret keeps a leaked DB from being checked offline.
+- **Admin:** `HOUSEHUNT_PASSWORD` stays the admin password (bootstrap on first
+  start). Existing profiles are assigned to the admin.
+- **Invites:** admin creates a single-use link (random token, stored hashed,
+  7-day expiry, optional label). Opening it creates the user and shows their
+  password once, with a "copy" button and a note to save it in a password manager.
+  Admin can regenerate a user's password (ends their sessions) or disable them.
+- **Sessions:** sessions table (random token stored hashed, user id, expiry,
+  last seen) replaces the stateless HMAC cookie, so they can be revoked.
+- **Strict separation of searches:** `profiles.user_id`; every profile, run,
+  results and CSV endpoint filters by the signed-in user and returns 404 for
+  anyone else's. Admin gets no view into others' searches, only user management
+  and the run queue (profile names hidden).
+- **Shared caches (no user data in them):**
+  - Route and geocode cache as today (keyed by rounded coordinates).
+  - Listing fetch cache keyed by (source, normalized server-side filters, date),
+    so identical filters on the same day reuse pages instead of re-fetching.
+  - Scheduled refreshes grouped: each distinct filter set fetched once a day,
+    routed per profile.
+- **Scrape budget:** single worker and global per-service rate limiters for all
+  users; per user one active run and a daily run quota (admin-set, default ~5);
+  `max_listings` capped for non-admins.
 
 Tasks:
-- [ ] Decide: local accounts vs proxy forward-auth (depends on the server setup)
-- [ ] Schema: users, sessions, invites; `profiles.user_id`; migration of existing data
-- [ ] Auth: scrypt passwords, DB sessions, login throttle per username + global
-- [ ] Invite flow: admin creates link, invitee sets username/password
-- [ ] Scope all profile/run/results endpoints by user; tests that user B gets 404 on A's data
-- [ ] Admin page: users (invite, disable, quota), run queue
+- [x] Decide: local accounts vs proxy forward-auth → local accounts, password-only
+- [ ] Schema: users, sessions, invites; `profiles.user_id`; migrate existing data to admin
+- [ ] Auth: HMAC password lookup, DB sessions, global login throttle
+- [ ] Invite flow: admin creates link (label, expiry); redeem shows generated password once
+- [ ] Admin page: users (label, last seen, disable, regenerate password, quota), invites, run queue
+- [ ] Scope all profile/run/results/CSV endpoints by user; tests that user B gets 404 on A's data
 - [ ] Per-user quotas: one active run, daily run limit, `max_listings` cap
-- [ ] Shared listing fetch cache per (source, filters, day); grouped scheduled refreshes
-- [ ] Frontend: sign-in with username, account menu (change password, sign out everywhere)
+- [ ] Listing fetch cache per (source, filters, day); grouped scheduled refreshes
+- [ ] Frontend: sign out everywhere; admin link in the top bar for the admin
 
 ### Later / ideas
 - [ ] More data points for the colour layer: extra sample points in sparse
