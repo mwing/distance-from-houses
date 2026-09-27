@@ -233,6 +233,49 @@ Tasks:
 - [ ] Nominatim policy forbids autocomplete: address search stays behind the Find
       button; keep it that way if the form is reworked
 
+### Multiple users (roadmap)
+Goal: a few invited people (family, friends) each with their own searches, on
+the same server. Not open sign-up: bulk fetching from Etuovi/Oikotie would get
+the server blocked, so load must stay close to single-user levels.
+
+Design:
+- **Accounts:** users table (username, scrypt password hash via `hashlib.scrypt`,
+  role admin/user, disabled flag). The admin creates single-use invite links
+  (random token, stored hashed, 7-day expiry); the invitee sets a username and
+  password. No email needed.
+- **Sessions:** a sessions table (random token, hashed, user id, expiry, last
+  seen) replaces the stateless HMAC cookie so sessions can be revoked
+  ("sign out everywhere", disabling a user ends their sessions).
+- **Ownership:** `profiles.user_id`; every profile, run and results endpoint
+  filters by the signed-in user and returns 404 for others' data. Admin sees
+  everything read-only plus the run queue.
+- **Bootstrap/migration:** first start with users table empty creates the admin
+  from `HOUSEHUNT_PASSWORD` (or `househunt web --create-admin`); existing
+  profiles are assigned to that admin.
+- **Scrape budget (the real constraint):**
+  - Keep the single worker and the global per-service rate limiters for all users.
+  - Per user: at most one queued/running run; daily run quota (admin-set, default ~5).
+  - Listing fetch cache keyed by (source, normalized server-side filters, date):
+    identical filter sets on the same day reuse pages instead of re-fetching.
+  - Scheduled refreshes grouped: each distinct filter set fetched once per day,
+    routed per profile (routes already shared via the cache).
+  - `max_listings` capped per role.
+- **Alternative if the server already has one:** trust a forward-auth header
+  from Tailscale Serve / Authelia / oauth2-proxy (only from
+  `HOUSEHUNT_TRUSTED_PROXIES`) instead of local accounts; ownership and quotas
+  stay the same.
+
+Tasks:
+- [ ] Decide: local accounts vs proxy forward-auth (depends on the server setup)
+- [ ] Schema: users, sessions, invites; `profiles.user_id`; migration of existing data
+- [ ] Auth: scrypt passwords, DB sessions, login throttle per username + global
+- [ ] Invite flow: admin creates link, invitee sets username/password
+- [ ] Scope all profile/run/results endpoints by user; tests that user B gets 404 on A's data
+- [ ] Admin page: users (invite, disable, quota), run queue
+- [ ] Per-user quotas: one active run, daily run limit, `max_listings` cap
+- [ ] Shared listing fetch cache per (source, filters, day); grouped scheduled refreshes
+- [ ] Frontend: sign-in with username, account menu (change password, sign out everywhere)
+
 ### Later / ideas
 - [ ] More data points for the colour layer: extra sample points in sparse
       areas (grid cells with no house nearby), routed and cached like houses
