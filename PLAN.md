@@ -46,6 +46,7 @@ unchecked box.
   (default next Tuesday 09:00).
 - SQLite cache for geocodes and routes, coordinates rounded to ~100 m.
 - Skip transit lookup when car time already exceeds that destination's transit limit.
+- Address search only on the Find button: Nominatim's usage policy forbids autocomplete.
 - Map tiles: OpenStreetMap, report served from `127.0.0.1` via
   `python -m househunt serve` (or `run --serve`). OSM needs a Referer, which
   `file://` never sends; the page shows a banner when opened as a file.
@@ -192,7 +193,7 @@ API sketch:
 
 Open questions for the user (answer before the deploy tasks):
 - [ ] Server: OS, Docker available? Existing reverse proxy (nginx/Caddy/Traefik)?
-- [ ] Single user, or family/shared with separate logins?
+- [x] Single user, or family/shared with separate logins? → invite-only shared (see Multiple users)
 - [ ] Public domain or LAN/VPN only?
 
 Tasks:
@@ -230,8 +231,6 @@ Tasks:
       even when HOUSEHUNT_TRUSTED_PROXIES doesn't match the proxy).
 - [x] `run-local.sh`: the server's Docker setup on localhost (generated password, import, reset)
 - [ ] Deploy to the user's server behind their reverse proxy; smoke test on phone
-- [ ] Nominatim policy forbids autocomplete: address search stays behind the Find
-      button; keep it that way if the form is reworked
 
 ### Multiple users (roadmap)
 Goal: a few invited people (family, friends) each with their own searches, on
