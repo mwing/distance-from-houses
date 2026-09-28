@@ -26,7 +26,7 @@ class TransitSettings:
 class MapSettings:
     green_factor: float = 0.5
     red_factor: float = 1.0
-    default_max_minutes: float = 45.0
+    default_max_minutes: float = 60.0
     fade_km: float = 3.0
     idw_power: float = 2.0
 
@@ -178,7 +178,7 @@ def _config_from_dict(raw: dict, env_api_key: bool) -> Config:
     map_settings = MapSettings(
         green_factor=float(m.get("green_factor", 0.5)),
         red_factor=float(m.get("red_factor", 1.0)),
-        default_max_minutes=float(m.get("default_max_minutes", 45.0)),
+        default_max_minutes=float(m.get("default_max_minutes", 60.0)),
         fade_km=float(m.get("fade_km", 3.0)),
         idw_power=float(m.get("idw_power", 2.0)),
     )

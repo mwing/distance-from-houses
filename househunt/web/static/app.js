@@ -458,7 +458,7 @@ async function viewSettings(profileId) {
   const nearbyBox = h("input", {type: "checkbox", checked: s.nearby_services !== false});
   const green = numberField("Green up to × limit", mp.green_factor, {min: 0, step: "0.05"});
   const red = numberField("Red from × limit", mp.red_factor, {min: 0.05, step: "0.05"});
-  const defLimit = numberField("Default limit, min", mp.default_max_minutes, {min: 1, step: 1});
+  const defLimit = numberField("Default max minutes", mp.default_max_minutes, {min: 1, step: 1});
   const fade = numberField("Fade distance, km", mp.fade_km, {min: 0.5, step: "0.5"});
   const idw = numberField("Interpolation power", mp.idw_power, {min: 0.5, step: "0.5"});
 
@@ -482,6 +482,8 @@ async function viewSettings(profileId) {
     h("fieldset", {}, h("legend", {}, "Destinations"),
       h("p", {class: "hint"}, "Places you travel to. Use Find to pin the address. The weight sets how much a destination counts in the ranking."),
       destList,
+      h("div", {class: "row"}, defLimit.el,
+        h("p", {class: "hint"}, "Applies to a destination's first ticked mode when it has no max of its own: houses over it are hidden unless you show them, and the map colours use it.")),
       h("div", {class: "row"}, h("button", {type: "button", onclick: () => addDest({})}, "Add destination"))),
     h("fieldset", {}, h("legend", {}, "Public transport"),
       meta.transit_available ? null : h("div", {class: "notice"}, "The server has no Digitransit API key, so only car times are calculated."),
@@ -493,8 +495,8 @@ async function viewSettings(profileId) {
       h("div", {class: "row"}, rush.el, h("label", {}, nearbyBox, "Show nearest daycare, school and grocery store")),
       h("p", {class: "hint"}, "Car times come from a free-flow road network, so they're multiplied by the rush-hour factor. Service distances are straight-line.")),
     h("fieldset", {}, h("legend", {}, "Map colours"),
-      h("div", {class: "row"}, green.el, red.el, defLimit.el, fade.el, idw.el),
-      h("p", {class: "hint"}, "Green up to limit × green factor, red from limit × red factor. The default limit applies to destinations without a max.")),
+      h("div", {class: "row"}, green.el, red.el, fade.el, idw.el),
+      h("p", {class: "hint"}, "Green up to limit × green factor, red from limit × red factor.")),
     h("fieldset", {}, h("legend", {}, "Automatic refresh"),
       h("div", {class: "row"}, h("label", {}, refresh, "Refresh daily at"), refreshAt),
       h("p", {class: "hint"}, "Fetches new listings once a day. Routes are cached, so only new homes are looked up.")),
@@ -572,6 +574,7 @@ async function viewResults(profileId) {
   const profile = (await api("GET", `/api/profiles/${profileId}`)).data;
   const status = h("div");
   const resultsEl = h("div");
+  const staleEl = h("div");
   const runBtn = h("button", {type: "button", class: "primary"}, "Run now");
   const cancelBtn = h("button", {type: "button", hidden: true}, "Cancel run");
   const csv = h("a", {class: "button", href: `/api/profiles/${profileId}/results.csv`, hidden: true}, "Download CSV");
@@ -587,7 +590,7 @@ async function viewResults(profileId) {
     h("div", {class: "page-head"},
       h("div", {}, h("h1", {}, profile.name), summaryEl),
       h("div", {}, h("div", {class: "actions"}, runBtn, cancelBtn, h("a", {class: "button", href: `#/p/${profileId}/edit`}, "Edit"), csv), quotaEl)),
-    status, resultsEl,
+    status, staleEl, resultsEl,
   );
   cleanup = () => { alive = false; clearTimeout(timer); handle?.destroy(); };
 
@@ -598,6 +601,9 @@ async function viewResults(profileId) {
       handle?.destroy();
       summaryEl.textContent = `${run.summary || ""} · updated ${fmtTime(run.finished_at)}`;
       csv.hidden = false;
+      staleEl.replaceChildren(payload.stale ? h("div", {class: "notice"},
+        "Settings that affect travel times changed since this run (destinations, travel modes, filters, transit time "
+        + "or rush-hour factor). Press Run now to update. Limit, weight and colour changes apply without a new run.") : "");
       handle = renderResults(resultsEl, payload, {storageId: profileId});
     } catch (e) {
       if (e.status === 404) {

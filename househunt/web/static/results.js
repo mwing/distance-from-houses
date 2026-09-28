@@ -22,8 +22,7 @@ const hhSafeUrl = u => /^https?:\/\//i.test(u || "") ? u : "#";
 
 function renderResults(container, DATA, opts = {}) {
   const M = DATA.map;
-  const carFactor = DATA.carFactor || 1;
-  const modeLabel = mode => mode === "car" && carFactor !== 1 ? `car (rush hour ×${carFactor})` : HH_MODE_LABEL[mode] || mode;
+  const modeLabel = mode => HH_MODE_LABEL[mode] || mode;
   const cols = DATA.columns;
   const storeKey = `househunt.combineExcluded.${opts.storageId || "report"}`;
   let sortCol = "score", asc = true;

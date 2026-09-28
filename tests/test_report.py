@@ -34,3 +34,13 @@ def test_transit_lower_bound_counts_against_limit():
     assert not _within_limits({"Work": {"car": 50, "transit": None, "transit_at_least": 50}}, [dest])
     assert _within_limits({"Work": {"car": 20, "transit": 40}}, [dest])
     assert _within_limits({"Work": {"car": 20, "transit": None}}, [dest])
+
+
+def test_default_limit_applies_to_main_mode_only_when_no_explicit_max():
+    work = Destination(name="Work", modes=["transit", "car"])
+    slow_transit = {"Work": {"transit": 70, "car": 20}}
+    assert not _within_limits(slow_transit, [work], default_limit=60)
+    assert _within_limits({"Work": {"transit": 50, "car": 90}}, [work], default_limit=60)
+    explicit = Destination(name="Work", modes=["transit", "car"], max_minutes={"transit": 80})
+    assert _within_limits(slow_transit, [explicit], default_limit=60)
+    assert _within_limits({"Work": {"transit": None, "car": 50}}, [work], default_limit=60)

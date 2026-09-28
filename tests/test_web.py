@@ -318,3 +318,25 @@ def test_shutdown_marks_run_interrupted_and_scheduler_retries_once(env, monkeypa
             assert store.get_run(started[0])["status"] == "interrupted"
     jobs._stop.clear()
     assert jobs.schedule_due(later) == []
+
+
+def test_limit_changes_apply_without_rerun_and_routing_changes_mark_stale(env):
+    client, app, _ = env
+    login(client)
+    p = create(client)
+    run_now(client, app, p["id"])
+    res = client.get(f"/api/profiles/{p['id']}/results").json()
+    assert res["payload"]["stale"] is False
+    assert all(r["within_limits"] for r in res["payload"]["rows"])
+
+    tighter = {**SETTINGS, "destinations": [{**SETTINGS["destinations"][0], "max_minutes": {"car": 10}}]}
+    client.put(f"/api/profiles/{p['id']}", json={"name": "Family", "settings": tighter})
+    res = client.get(f"/api/profiles/{p['id']}/results").json()
+    assert res["payload"]["stale"] is False
+    assert not any(r["within_limits"] for r in res["payload"]["rows"])
+    assert res["run"]["summary"] == "0 listings within limits, 2 over"
+    assert res["payload"]["dests"][0]["limits"] == {"car": 10.0}
+
+    moved = {**tighter, "destinations": [{**tighter["destinations"][0], "lat": 60.3}]}
+    client.put(f"/api/profiles/{p['id']}", json={"name": "Family", "settings": moved})
+    assert client.get(f"/api/profiles/{p['id']}/results").json()["payload"]["stale"] is True

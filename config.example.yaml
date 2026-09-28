@@ -54,7 +54,7 @@ map:
   # green up to max_minutes × green_factor, fully red from max_minutes × red_factor.
   green_factor: 0.5
   red_factor: 1
-  default_max_minutes: 45   # for destinations/modes without max_minutes
+  default_max_minutes: 60   # limit for a destination's main mode when it has no max_minutes
   fade_km: 3                # colour fades out this far from the nearest house
   idw_power: 2              # higher = nearer houses dominate the interpolation
 

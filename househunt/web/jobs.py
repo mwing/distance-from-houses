@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from ..config import config_from_dict
 from ..pipeline import run as run_pipeline
 from ..progress import Cancelled, Progress
-from ..report import build_payload, summary
+from ..report import build_payload, fingerprint, summary
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -151,6 +151,7 @@ class JobManager:
         log.info("Run %d for profile %r started (%s)", run_id, profile["name"], run["trigger"])
         try:
             cfg = config_from_dict(profile["settings"], env_api_key=False)
+            settings_fp = fingerprint(cfg)
             cfg.cache_path = self.settings.cache_path
             cfg.transit.api_key = self.settings.digitransit_api_key
             cfg.transit.requests_per_second = self.settings.digitransit_rps
@@ -159,7 +160,7 @@ class JobManager:
             if cap is not None:
                 cfg.max_listings = min(cfg.max_listings, cap)
             results = run_pipeline(cfg, progress, fetch_cache_hours=self.settings.fetch_cache_hours)
-            payload = build_payload(results, cfg.destinations, cfg.map, cfg.car.rush_hour_factor)
+            payload = build_payload(results, cfg.destinations, cfg.map, cfg.car.rush_hour_factor, settings_fp)
             self.store.apply_history(profile["id"], payload)
             self.store.save_progress(run_id, progress.snapshot())
             self.store.finish_run(run_id, "done", payload=payload, summary=summary(payload))

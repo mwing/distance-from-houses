@@ -325,6 +325,13 @@ Tasks:
 - [x] Columns and popup lines only for the modes a destination uses (car is still
       computed for the transit shortcut). Overpass often answers 504 when busy; 4 attempts.
 
+### Limits follow the settings
+- [x] Default max minutes 60 for a destination's main mode when it has no max; used for both
+      hiding and colours
+- [x] Stored results re-evaluated on load (limits, weights, colours) using a settings
+      fingerprint; routing-relevant changes mark results stale with a "run again" notice
+- [x] Removed the "(rush hour ×1.2)" suffix from listing labels
+
 ### Later / ideas
 - [ ] More data points for the colour layer: extra sample points in sparse
       areas (grid cells with no house nearby), routed and cached like houses

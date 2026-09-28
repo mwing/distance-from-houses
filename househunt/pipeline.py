@@ -76,13 +76,24 @@ def _score(times: dict[str, dict[str, float | None]], dests: list[Destination]) 
     return round(total, 1)
 
 
-def _within_limits(times: dict[str, dict[str, float | None]], dests: list[Destination]) -> bool:
+def _mode_value(t: dict[str, float | None], mode: str) -> float | None:
+    value = t.get(mode)
+    if value is None and mode == "transit":
+        value = t.get("transit_at_least")
+    return value
+
+
+def _within_limits(times: dict[str, dict[str, float | None]], dests: list[Destination],
+                   default_limit: float | None = None) -> bool:
     for d in dests:
+        t = times.get(d.name) or {}
         for mode, limit in d.max_minutes.items():
-            value = times[d.name].get(mode)
-            if value is None and mode == "transit":
-                value = times[d.name].get("transit_at_least")
+            value = _mode_value(t, mode)
             if value is not None and value > limit:
+                return False
+        if default_limit is not None:
+            main = next((m for m in d.modes if _mode_value(t, m) is not None), None)
+            if main and main not in d.max_minutes and _mode_value(t, main) > default_limit:
                 return False
     return True
 
@@ -172,7 +183,7 @@ def run(cfg: Config, progress: Progress | None = None, fetch_cache_hours: float 
 
     for r in results:
         r.score = _score(r.times, dests)
-        r.too_far = not _within_limits(r.times, dests)
+        r.too_far = not _within_limits(r.times, dests, cfg.map.default_max_minutes)
         log.debug("%s, %s: %s", r.listing.address, r.listing.municipality, _format_times(r.times, dests))
     results.sort(key=lambda r: (r.too_far, r.score is None, r.score or 0))
     log.info("%d listings, %d within travel limits", len(results), sum(not r.too_far for r in results))

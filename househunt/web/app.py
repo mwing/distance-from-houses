@@ -15,10 +15,10 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..cache import Cache
-from ..config import ROUTERS, WEEKDAYS
+from ..config import ROUTERS, WEEKDAYS, config_from_dict
 from ..geocode import Geocoder
 from ..models import HOUSE_TYPES, PLOT_OWNERSHIP, UUSIMAA_MUNICIPALITIES
-from ..report import csv_text
+from ..report import csv_text, reevaluate, summary
 from .auth import (COOKIE, INVITE_DAYS, SESSION_DAYS, SESSION_SECONDS, Hasher, LoginThrottle, expiry,
                    generate_password, load_secret, new_token)
 from .jobs import AlreadyRunning, JobManager, QuotaExceeded, ServerSettings, local_midnight
@@ -50,7 +50,7 @@ DEFAULT_SETTINGS = {
     "filters": {"house_types": [], "rooms": [], "plot_ownership": [], "municipalities": []},
     "destinations": [],
     "transit": {"router": "hsl", "arrive_by": "09:00", "day": "tuesday"},
-    "map": {"green_factor": 0.5, "red_factor": 1.0, "default_max_minutes": 45, "fade_km": 3, "idw_power": 2},
+    "map": {"green_factor": 0.5, "red_factor": 1.0, "default_max_minutes": 60, "fade_km": 3, "idw_power": 2},
     "car": {"rush_hour_factor": 1.2},
     "nearby_services": True,
 }
@@ -345,24 +345,27 @@ def create_app(settings: ServerSettings, password: str | None, secret: bytes, st
             raise HTTPException(404, "No such run")
         return {"cancelled": jobs.cancel(run_id)}
 
-    @app.get("/api/profiles/{profile_id}/results")
-    def results(profile_id: int, user: dict = Depends(me)):
-        own_profile(profile_id, user)
-        latest = store.latest_result(profile_id)
+    def current_result(profile: dict) -> tuple[dict, dict]:
+        latest = store.latest_result(profile["id"])
         if not latest:
             raise HTTPException(404, "No results yet")
         run, payload = latest
+        payload = reevaluate(payload, config_from_dict(profile["settings"], env_api_key=False))
+        run["summary"] = summary(payload)
+        return run, payload
+
+    @app.get("/api/profiles/{profile_id}/results")
+    def results(profile_id: int, user: dict = Depends(me)):
+        run, payload = current_result(own_profile(profile_id, user))
         return {"run": run, "payload": payload}
 
     @app.get("/api/profiles/{profile_id}/results.csv")
     def results_csv(profile_id: int, user: dict = Depends(me)):
         p = own_profile(profile_id, user)
-        latest = store.latest_result(profile_id)
-        if not latest:
-            raise HTTPException(404, "No results yet")
+        _, payload = current_result(p)
         filename = re.sub(r"[^A-Za-z0-9_-]+", "_", p["name"]).strip("_") or "listings"
         return PlainTextResponse(
-            csv_text(latest[1]),
+            csv_text(payload),
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="{filename}.csv"'},
         )

@@ -117,7 +117,10 @@ the terminal; Ctrl-C stops the run, and finished routes stay cached.
 The map colours the area around the houses by travel time. Green up to
 `max_minutes × map.green_factor` (default half the limit), shading to fully red at
 `max_minutes × map.red_factor` (default the limit itself). Destinations without
-`max_minutes` use `map.default_max_minutes`.
+`max_minutes` use `map.default_max_minutes` (default 60) for their first mode, which
+also decides whether a house counts as over the limit. In the web app, changing
+limits, weights or colours applies to the latest results right away; changing
+destinations, modes, filters, transit time or the rush-hour factor needs a new run.
 
 "Colour by" picks what drives the colours:
 - **All destinations · worst** (default): each destination's time as a percentage

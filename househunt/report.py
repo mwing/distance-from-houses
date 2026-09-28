@@ -1,13 +1,15 @@
 import csv
+import dataclasses
+import hashlib
 import html
 import io
 import json
 from pathlib import Path
 
-from .config import MapSettings
+from .config import Config, MapSettings
 from .services import KINDS as SERVICE_KINDS
 from .models import Destination
-from .pipeline import Result
+from .pipeline import Result, _score, _within_limits
 
 STATIC = Path(__file__).parent / "web" / "static"
 CSV_SKIP = {"times", "badges", "nearby"}
@@ -44,8 +46,52 @@ def _row(r: Result, dests: list[Destination]) -> dict:
     return row
 
 
+def fingerprint(cfg: Config) -> str:
+    """Covers what decides the listings and travel times; limits, weights and colours are left out
+    so they can change without a new run."""
+    relevant = {
+        "sources": sorted(cfg.sources),
+        "max_listings": cfg.max_listings,
+        "filters": dataclasses.asdict(cfg.filters),
+        "destinations": [[d.name, d.address, d.lat, d.lon, sorted(d.modes)] for d in cfg.destinations],
+        "transit": [cfg.transit.router, cfg.transit.arrive_by, cfg.transit.depart_at, cfg.transit.day],
+        "car": cfg.car.rush_hour_factor,
+        "nearby": cfg.nearby_services,
+    }
+    return hashlib.sha256(json.dumps(relevant, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _map_json(map_settings: MapSettings) -> dict:
+    return {
+        "greenFactor": map_settings.green_factor,
+        "redFactor": map_settings.red_factor,
+        "defaultLimit": map_settings.default_max_minutes,
+        "fadeKm": map_settings.fade_km,
+        "idwPower": map_settings.idw_power,
+    }
+
+
+def reevaluate(payload: dict, cfg: Config) -> dict:
+    """Mutates payload: applies the current limits, weights and colours to stored travel times,
+    or marks it stale when the times themselves would differ."""
+    payload["stale"] = payload.get("fingerprint") != fingerprint(cfg)
+    if payload["stale"]:
+        return payload
+    coords = {d["name"]: (d["lat"], d["lon"]) for d in payload["dests"]}
+    dests = [dataclasses.replace(d, lat=coords[d.name][0], lon=coords[d.name][1]) for d in cfg.destinations]
+    for row in payload["rows"]:
+        row["score"] = _score(row["times"], dests)
+        row["within_limits"] = _within_limits(row["times"], dests, cfg.map.default_max_minutes)
+    payload["dests"] = [
+        {"name": d.name, "lat": d.lat, "lon": d.lon, "modes": d.modes, "limits": d.max_minutes, "weight": d.weight}
+        for d in dests
+    ]
+    payload["map"] = _map_json(cfg.map)
+    return payload
+
+
 def build_payload(results: list[Result], dests: list[Destination], map_settings: MapSettings,
-                  car_factor: float = 1.0) -> dict:
+                  car_factor: float = 1.0, settings_fingerprint: str | None = None) -> dict:
     columns = ["score", "address", "municipality", "house_type", "rooms", "size_m2", "price_eur", "price_per_m2", "build_year"]
     for d in dests:
         columns += [f"{d.name} {mode} min" for mode in d.modes]
@@ -59,13 +105,8 @@ def build_payload(results: list[Result], dests: list[Destination], map_settings:
         ],
         "columns": columns,
         "carFactor": car_factor,
-        "map": {
-            "greenFactor": map_settings.green_factor,
-            "redFactor": map_settings.red_factor,
-            "defaultLimit": map_settings.default_max_minutes,
-            "fadeKm": map_settings.fade_km,
-            "idwPower": map_settings.idw_power,
-        },
+        "fingerprint": settings_fingerprint,
+        "map": _map_json(map_settings),
     }
 
 
