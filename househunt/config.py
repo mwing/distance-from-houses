@@ -103,6 +103,7 @@ def _parse_destination(raw: dict) -> Destination:
     )
 
 
+MAX_DESTINATIONS = 10
 WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 ROUTERS = ("hsl", "finland")
 
@@ -127,6 +128,8 @@ def _config_from_dict(raw: dict, env_api_key: bool) -> Config:
     destinations = [_parse_destination(d) for d in raw.get("destinations") or []]
     if not destinations:
         raise ValueError("Config needs at least one destination")
+    if len(destinations) > MAX_DESTINATIONS:
+        raise ValueError(f"At most {MAX_DESTINATIONS} destinations")
     names = [d.name for d in destinations]
     if len(set(names)) != len(names):
         raise ValueError("Destination names must be unique")

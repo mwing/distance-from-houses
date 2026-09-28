@@ -58,6 +58,13 @@ CREATE TABLE IF NOT EXISTS invites (
   used_at TEXT,
   used_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
+CREATE TABLE IF NOT EXISTS run_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  trigger TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS run_log_user ON run_log(user_id, created_at);
 CREATE TABLE IF NOT EXISTS listings (
   profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   key TEXT NOT NULL,
@@ -210,6 +217,11 @@ class Store:
                     self._db.execute("UPDATE users SET secret_hash = ? WHERE id = ?", (secret_hash, admin_id))
                     self._db.execute("DELETE FROM sessions WHERE user_id = ?", (admin_id,))
             self._db.execute("UPDATE profiles SET user_id = ? WHERE user_id IS NULL", (admin_id,))
+            if self._db.execute("SELECT COUNT(*) FROM run_log").fetchone()[0] == 0:
+                self._db.execute(
+                    "INSERT INTO run_log (user_id, trigger, created_at) SELECT p.user_id, r.trigger, r.created_at "
+                    "FROM runs r JOIN profiles p ON p.id = r.profile_id WHERE p.user_id IS NOT NULL"
+                )
         return self.get_user(admin_id)
 
     def admin_id(self) -> int | None:
@@ -308,7 +320,7 @@ class Store:
 
     def redeem_invite(self, token_hash: str, secret_hash: str, daily_run_limit: int | None,
                       max_listings: int | None) -> dict | None:
-        """Creates the user and consumes the invite atomically; None if it was already used or expired."""
+        """Creates the user and consumes the invite atomically."""
         with self._lock, self._db:
             ts = now_iso()
             row = self._db.execute(
@@ -344,11 +356,20 @@ class Store:
         }
 
     def create_run(self, profile_id: int, trigger: str) -> dict:
-        cur = self._exec(
-            "INSERT INTO runs (profile_id, trigger, status, created_at) VALUES (?, ?, 'queued', ?)",
-            (profile_id, trigger, now_iso()),
-        )
-        return self.get_run(cur.lastrowid)
+        ts = now_iso()
+        with self._lock, self._db:
+            cur = self._db.execute(
+                "INSERT INTO runs (profile_id, trigger, status, created_at) VALUES (?, ?, 'queued', ?)",
+                (profile_id, trigger, ts),
+            )
+            # Kept apart from runs, which cascade with their profile: deleting a search must not reset quotas.
+            self._db.execute(
+                "INSERT INTO run_log (user_id, trigger, created_at) SELECT user_id, ?, ? FROM profiles "
+                "WHERE id = ? AND user_id IS NOT NULL",
+                (trigger, ts, profile_id),
+            )
+            run_id = cur.lastrowid
+        return self.get_run(run_id)
 
     def get_run(self, run_id: int, user_id: int | None = None) -> dict | None:
         if user_id is None:
@@ -369,11 +390,7 @@ class Store:
         return self._run(row) if row else None
 
     def manual_runs_since(self, user_id: int, since_iso: str) -> int:
-        rows = self._all(
-            "SELECT r.created_at FROM runs r JOIN profiles p ON p.id = r.profile_id "
-            "WHERE p.user_id = ? AND r.trigger = 'manual'",
-            (user_id,),
-        )
+        rows = self._all("SELECT created_at FROM run_log WHERE user_id = ? AND trigger = 'manual'", (user_id,))
         since = dt.datetime.fromisoformat(since_iso)
         return sum(1 for r in rows if dt.datetime.fromisoformat(r["created_at"]) >= since)
 
@@ -438,6 +455,10 @@ class Store:
             (profile_id,),
         )
         return (self._run(row), json.loads(row["result"])) if row else None
+
+    def count_profiles(self, user_id: int, refresh_only: bool = False) -> int:
+        sql = "SELECT COUNT(*) AS n FROM profiles WHERE user_id = ?" + (" AND refresh_daily = 1" if refresh_only else "")
+        return self._one(sql, (user_id,))["n"]
 
     def last_scheduled_at(self, profile_id: int) -> str | None:
         # Interrupted runs don't count, so a restart during a scheduled run retries it the same day.

@@ -63,6 +63,13 @@ shows its generated password once. Each person sees only their own searches,
 including the admin. The admin can rename, disable or delete accounts, issue a
 new password (ends that person's sessions), and set per-user limits.
 
+Back up `session.key` together with `househunt.sqlite` (both in `/data`): stored
+passwords are keyed with it. If it's lost while invited accounts exist, the server
+refuses to start rather than silently locking everyone out.
+
+Limits for invited users: 20 searches, 3 with daily refresh, one run at a time
+(scheduled ones included), and each search refreshes at most once a day.
+
 Everyone shares the scraping budget: runs go through one queue, a person can
 have one run going at a time and a daily number of manual runs, and listing
 pages fetched with identical filters are reused for a few hours. Route times are

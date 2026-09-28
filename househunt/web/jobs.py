@@ -196,7 +196,10 @@ class JobManager:
             if now < due:
                 continue
             last = self.store.last_scheduled_at(p["id"])
-            if last and dt.datetime.fromisoformat(last) >= due:
+            # Once per local day, so moving refresh_at later after a run can't buy another one.
+            if last and dt.datetime.fromisoformat(last) >= local_midnight(now):
+                continue
+            if self.store.user_active_run(p["user_id"]):
                 continue
             if self.store.interrupted_scheduled_since(p["id"], due.isoformat()) > MAX_SCHEDULED_RETRIES:
                 continue

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import yaml
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -29,6 +30,8 @@ OPEN_API_PATHS = {"/api/login", "/api/logout", "/api/session"}
 OPEN_API_PREFIXES = ("/api/invites/",)
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 SESSION_TOUCH_SECONDS = 300
+MAX_SEARCHES = 20
+MAX_REFRESHING_SEARCHES = 3
 
 CSP = "; ".join([
     "default-src 'self'",
@@ -74,11 +77,11 @@ def _label(value) -> str:
     return label
 
 
-def _optional_positive_int(value, name: str, maximum: int) -> int | None:
+def _optional_int(value, name: str, minimum: int, maximum: int) -> int | None:
     if value is None or value == "":
         return None
-    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= maximum:
-        raise HTTPException(422, f"{name} must be a whole number between 0 and {maximum}, or empty for the default")
+    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+        raise HTTPException(422, f"{name} must be a whole number from {minimum} to {maximum}, or empty for the default")
     return value
 
 
@@ -86,8 +89,14 @@ def _is_secure(request: Request) -> bool:
     return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
 
 
-def create_app(settings: ServerSettings, password: str | None, secret: bytes, start_jobs: bool = True) -> FastAPI:
+def create_app(settings: ServerSettings, password: str | None, secret: bytes, start_jobs: bool = True,
+               secret_is_new: bool = False) -> FastAPI:
     store = Store(settings.data_dir / "househunt.sqlite")
+    if secret_is_new and any(u["role"] != "admin" for u in store.list_users()):
+        raise RuntimeError(
+            "session.key was missing or damaged, but user accounts exist. Their passwords are keyed with it, so "
+            "restore session.key from backup, or delete the users and invite them again."
+        )
     jobs = JobManager(store, settings)
     geocoder = Geocoder(Cache(settings.cache_path))
     hasher = Hasher(secret)
@@ -130,7 +139,7 @@ def create_app(settings: ServerSettings, password: str | None, secret: bytes, st
         is_api = path.startswith("/api/")
         # SameSite=Lax still lets sibling subdomains behind the same proxy POST with the cookie.
         cross_site = request.headers.get("sec-fetch-site") not in (None, "same-origin", "none")
-        request.state.user = resolve_user(request) if is_api else None
+        request.state.user = await run_in_threadpool(resolve_user, request) if is_api else None
         open_path = path in OPEN_API_PATHS or path.startswith(OPEN_API_PREFIXES)
         if is_api and request.method not in SAFE_METHODS and cross_site:
             response = JSONResponse({"detail": "Cross-site request refused"}, status_code=403)
@@ -186,12 +195,12 @@ def create_app(settings: ServerSettings, password: str | None, secret: bytes, st
             return {"ok": True}
         if throttle.locked():
             raise HTTPException(429, "Too many failed attempts, try again in a minute")
-        user = store.user_by_secret(hasher.password(str(body.get("password") or "")))
+        user = await run_in_threadpool(store.user_by_secret, hasher.password(str(body.get("password") or "")))
         if not user:
             throttle.failed()
             await asyncio.sleep(1)
             raise HTTPException(401, "Wrong password")
-        start_session(request, response, user)
+        await run_in_threadpool(start_session, request, response, user)
         return {"ok": True}
 
     @app.post("/api/logout")
@@ -258,9 +267,22 @@ def create_app(settings: ServerSettings, password: str | None, secret: bytes, st
     def list_profiles(user: dict = Depends(me)):
         return store.list_profiles(user["id"])
 
+    def check_search_limits(user: dict, refresh_daily: bool, profile_id: int | None = None) -> None:
+        if user["role"] == "admin":
+            return
+        if profile_id is None and store.count_profiles(user["id"]) >= MAX_SEARCHES:
+            raise HTTPException(429, f"At most {MAX_SEARCHES} searches per account")
+        if refresh_daily:
+            current = store.get_profile(profile_id, user["id"]) if profile_id else None
+            already = bool(current and current["refresh_daily"])
+            if not already and store.count_profiles(user["id"], refresh_only=True) >= MAX_REFRESHING_SEARCHES:
+                raise HTTPException(429, f"At most {MAX_REFRESHING_SEARCHES} searches can refresh daily")
+
     @app.post("/api/profiles", status_code=201)
     def create_profile(body: dict = Body(...), user: dict = Depends(me)):
-        return store.create_profile(user["id"], *_profile_body(body))
+        fields = _profile_body(body)
+        check_search_limits(user, fields[2])
+        return store.create_profile(user["id"], *fields)
 
     def own_profile(profile_id: int, user: dict) -> dict:
         p = store.get_profile(profile_id, user["id"])
@@ -277,7 +299,9 @@ def create_app(settings: ServerSettings, password: str | None, secret: bytes, st
     @app.put("/api/profiles/{profile_id}")
     def update_profile(profile_id: int, body: dict = Body(...), user: dict = Depends(me)):
         own_profile(profile_id, user)
-        return store.update_profile(profile_id, user["id"], *_profile_body(body))
+        fields = _profile_body(body)
+        check_search_limits(user, fields[2], profile_id)
+        return store.update_profile(profile_id, user["id"], *fields)
 
     @app.delete("/api/profiles/{profile_id}", status_code=204)
     def delete_profile(profile_id: int, user: dict = Depends(me)):
@@ -364,13 +388,19 @@ def create_app(settings: ServerSettings, password: str | None, secret: bytes, st
             fields["label"] = _label(body["label"])
         if target["role"] != "admin":
             if "disabled" in body:
-                fields["disabled"] = int(bool(body["disabled"]))
+                if not isinstance(body["disabled"], bool):
+                    raise HTTPException(422, "disabled must be true or false")
+                fields["disabled"] = int(body["disabled"])
             if "daily_run_limit" in body:
-                fields["daily_run_limit"] = _optional_positive_int(body["daily_run_limit"], "Daily runs", 100)
+                fields["daily_run_limit"] = _optional_int(body["daily_run_limit"], "Daily runs", 0, 100)
             if "max_listings" in body:
-                fields["max_listings"] = _optional_positive_int(body["max_listings"], "Max listings", 5000)
+                fields["max_listings"] = _optional_int(body["max_listings"], "Max listings", 1, 5000)
         elif set(body) - {"label"}:
             raise HTTPException(422, "The admin account can only be renamed; its password comes from HOUSEHUNT_PASSWORD")
+        if fields.get("disabled"):
+            active = store.user_active_run(user_id)
+            if active:
+                jobs.cancel(active["id"])
         return store.update_user(user_id, **fields)
 
     @app.post("/api/admin/users/{user_id}/password")
@@ -449,6 +479,12 @@ def main(args) -> int:
         print(f"Created search {p['name']!r} (id {p['id']}) for the admin account")
         return 0
 
+    if not 0 < settings.fetch_cache_hours <= 24:
+        print("HOUSEHUNT_FETCH_CACHE_HOURS must be between 0 and 24", file=sys.stderr)
+        return 2
+    key_path = data_dir / "session.key"
+    secret_is_new = not (key_path.exists() and key_path.stat().st_size >= 32)
+
     password = _password()
     if args.no_auth:
         if args.host not in ("127.0.0.1", "localhost", "::1"):
@@ -461,7 +497,11 @@ def main(args) -> int:
     if not settings.digitransit_api_key:
         log.warning("DIGITRANSIT_API_KEY is not set; runs will compute car times only")
 
-    app = create_app(settings, password, load_secret(data_dir))
+    try:
+        app = create_app(settings, password, load_secret(data_dir), secret_is_new=secret_is_new)
+    except RuntimeError as e:
+        print(e, file=sys.stderr)
+        return 2
     uvicorn.run(
         app,
         host=args.host,

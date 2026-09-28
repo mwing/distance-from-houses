@@ -24,7 +24,9 @@ class Cache:
 
     def delete_namespaces(self, prefix: str, keep: set[str]) -> None:
         with self._lock:
-            rows = self._db.execute("SELECT DISTINCT ns FROM kv WHERE ns LIKE ?", (prefix + "%",)).fetchall()
+            # A range, not LIKE: LIKE is case-insensitive and can't use the primary-key index.
+            upper = prefix[:-1] + chr(ord(prefix[-1]) + 1)
+            rows = self._db.execute("SELECT DISTINCT ns FROM kv WHERE ns >= ? AND ns < ?", (prefix, upper)).fetchall()
             for (ns,) in rows:
                 if ns not in keep:
                     self._db.execute("DELETE FROM kv WHERE ns = ?", (ns,))

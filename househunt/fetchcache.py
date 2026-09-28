@@ -10,9 +10,11 @@ NS_PREFIX = "fetch:"
 
 
 class FetchCache:
-    """Listing pages per (source, filters, max_listings), reused for ttl_hours across searches and users."""
+    """Shared across users on purpose: listings are public and the key covers every fetch input."""
 
     def __init__(self, cache: Cache, ttl_hours: float):
+        if not 0 < ttl_hours <= 24:
+            raise ValueError("ttl_hours must be between 0 and 24: entries are bucketed by day")
         self.cache = cache
         self.ttl = dt.timedelta(hours=ttl_hours)
 
@@ -33,7 +35,10 @@ class FetchCache:
         for day in {now.date(), (now - self.ttl).date()}:
             hit = self.cache.get(self._ns(day), key)
             if hit and now - dt.datetime.fromisoformat(hit["fetched_at"]) < self.ttl:
-                return [Listing(**d) for d in hit["listings"]]
+                try:
+                    return [Listing(**d) for d in hit["listings"]]
+                except (TypeError, KeyError):
+                    return None
         return None
 
     def put(self, source: str, filters: Filters, max_listings: int, listings: list[Listing]) -> None:

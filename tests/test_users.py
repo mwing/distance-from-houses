@@ -208,3 +208,85 @@ def test_fetch_cache_reuses_within_ttl(tmp_path):
     key = fc._key("oikotie", f, 100)
     fc.cache.set(ns, key, {**fc.cache.get(ns, key), "fetched_at": old})
     assert fc.get("oikotie", f, 100) is None
+
+
+def test_deleting_a_search_does_not_reset_daily_runs(env):
+    app, admin, client, _ = env
+    user, _, _ = invite_user(admin, client)
+    for _ in range(2):
+        p = create(user)
+        run = user.post(f"/api/profiles/{p['id']}/runs").json()
+        app.state.jobs._execute(app.state.store.get_run(run["id"]))
+        assert user.delete(f"/api/profiles/{p['id']}").status_code == 204
+    p = create(user)
+    assert user.post(f"/api/profiles/{p['id']}/runs").status_code == 429
+
+
+def test_scheduled_runs_once_per_day_and_one_per_user(env):
+    app, admin, client, _ = env
+    user, _, _ = invite_user(admin, client)
+    body = {"settings": SETTINGS, "refresh_daily": True, "refresh_at": "06:00"}
+    p1 = user.post("/api/profiles", json={"name": "a", **body}).json()
+    user.post("/api/profiles", json={"name": "b", **body})
+    jobs, store = app.state.jobs, app.state.store
+    t = dt.datetime(2026, 9, 28, 6, 1, tzinfo=HELSINKI)
+    first = jobs.schedule_due(t)
+    assert len(first) == 1
+    jobs._execute(store.get_run(first[0]))
+    second = jobs.schedule_due(t)
+    assert len(second) == 1 and second != first
+    jobs._execute(store.get_run(second[0]))
+    user.put(f"/api/profiles/{p1['id']}", json={"name": "a", **body, "refresh_at": "07:00"})
+    assert jobs.schedule_due(t.replace(hour=7, minute=5)) == []
+
+
+def test_search_limits_for_users(env, monkeypatch):
+    app, admin, client, _ = env
+    user, _, _ = invite_user(admin, client)
+    monkeypatch.setattr(web_app, "MAX_SEARCHES", 2)
+    body = {"settings": SETTINGS, "refresh_daily": True}
+    assert user.post("/api/profiles", json={"name": "1", **body}).status_code == 201
+    assert user.post("/api/profiles", json={"name": "2", **body}).status_code == 201
+    assert user.post("/api/profiles", json={"name": "3", "settings": SETTINGS}).status_code == 429
+    too_many = {**SETTINGS, "destinations": [{**SETTINGS["destinations"][0], "name": f"d{i}"} for i in range(11)]}
+    assert admin.post("/api/profiles", json={"name": "x", "settings": too_many}).status_code == 422
+
+
+def test_admin_input_validation(env):
+    _, admin, client, _ = env
+    invite_user(admin, client)
+    uid = next(u["id"] for u in admin.get("/api/admin/users").json()["users"] if u["label"] == "Mum")
+    assert admin.patch(f"/api/admin/users/{uid}", json={"disabled": "false"}).status_code == 422
+    assert admin.patch(f"/api/admin/users/{uid}", json={"max_listings": 0}).status_code == 422
+    assert admin.patch(f"/api/admin/users/{uid}", json={"daily_run_limit": 0}).status_code == 200
+
+
+def test_disabling_cancels_queued_run(env):
+    app, admin, client, _ = env
+    user, _, _ = invite_user(admin, client)
+    p = create(user)
+    run = user.post(f"/api/profiles/{p['id']}/runs").json()
+    uid = next(u["id"] for u in admin.get("/api/admin/users").json()["users"] if u["label"] == "Mum")
+    admin.patch(f"/api/admin/users/{uid}", json={"disabled": True})
+    assert app.state.store.get_run(run["id"])["status"] == "cancelled"
+
+
+def test_new_session_key_with_existing_users_refuses_to_start(tmp_path):
+    settings = ServerSettings(data_dir=tmp_path, digitransit_api_key=None)
+    app = web_app.create_app(settings, ADMIN_PW, b"k" * 32, start_jobs=False)
+    app.state.store.create_user("Mum", "hash", None, None)
+    with pytest.raises(RuntimeError, match="session.key"):
+        web_app.create_app(settings, ADMIN_PW, b"j" * 32, start_jobs=False, secret_is_new=True)
+
+
+def test_fetch_cache_rejects_long_ttl_and_old_format(tmp_path):
+    with pytest.raises(ValueError):
+        FetchCache(Cache(tmp_path / "c.sqlite"), ttl_hours=48)
+    fc = FetchCache(Cache(tmp_path / "c.sqlite"), ttl_hours=6)
+    f = Filters()
+    fc.put("oikotie", f, 10, [listing("1", 1)])
+    ns, key = fc._ns(dt.datetime.now(dt.timezone.utc).date()), fc._key("oikotie", f, 10)
+    entry = fc.cache.get(ns, key)
+    entry["listings"][0]["removed_field"] = 1
+    fc.cache.set(ns, key, entry)
+    assert fc.get("oikotie", f, 10) is None

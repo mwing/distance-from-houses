@@ -154,6 +154,8 @@ function secretBox(text) {
 
 async function viewInvite(token) {
   accountNav.hidden = true;
+  const current = await api("GET", "/api/session").then(r => r.data).catch(() => null);
+  const signedIn = current?.auth_required && current?.authenticated ? current.user.label : null;
   const err = h("div");
   let invite;
   try {
@@ -166,6 +168,7 @@ async function viewInvite(token) {
   const card = h("div", {class: "card login"},
     h("h1", {}, `Welcome, ${invite.label}`),
     h("p", {}, "This invite creates your own househunt account. Your searches are private to you."),
+    signedIn ? h("div", {class: "notice"}, `You're signed in as ${signedIn}. Creating this account uses up the invite and signs this browser into the new account instead.`) : null,
     h("p", {class: "muted"}, "You'll get a password on the next screen. It's the only way to sign in, so save it in your password manager."),
     err, create);
   create.addEventListener("click", async () => {
@@ -281,7 +284,7 @@ async function viewAdmin() {
     h("div", {class: "page-head"}, h("h1", {}, "Admin")),
     h("fieldset", {}, h("legend", {}, "Invite someone"), inviteForm, inviteOut, h("h2", {class: "sub"}, "Pending invites"), pending),
     h("fieldset", {}, h("legend", {}, "Users"),
-      h("p", {class: "hint"}, "Empty limits use the server defaults (shown greyed). Searches are private: you can manage accounts but not see their searches."),
+      h("p", {class: "hint"}, "Empty limits use the server defaults (shown greyed). You can't view anyone's searches here, but issuing a new password would let you sign in as them."),
       h("div", {class: "user-list"}, userRows)),
     h("fieldset", {}, h("legend", {}, "Run queue"), queueList),
   );

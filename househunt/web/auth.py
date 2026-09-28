@@ -39,8 +39,9 @@ class Hasher:
         self._secret = secret
 
     def password(self, password: str) -> str:
-        # Keyed so a leaked database can't be checked against guesses offline; plain HMAC
-        # is enough because user passwords are generated with ~100 bits of entropy.
+        # Keyed so a leaked database alone can't be checked offline. Unsalted HMAC is fine for generated
+        # passwords; the admin's chosen one relies on session.key staying secret, and replacing
+        # session.key invalidates every stored hash.
         return hmac.new(self._secret, b"password:" + password.strip().encode(), hashlib.sha256).hexdigest()
 
     @staticmethod

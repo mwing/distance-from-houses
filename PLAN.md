@@ -286,6 +286,13 @@ Tasks:
 - [x] Frontend: sign out everywhere; admin link in the top bar for the admin
 - [x] Grouped scheduled refreshes come from the fetch cache: same filters on the same
       day hit the cache (TTL `HOUSEHUNT_FETCH_CACHE_HOURS`, default 6), no separate grouping
+- [x] Review fixes: run quota survives deleting a search (run_log table), scheduled runs
+      once per search per day and one active run per user, 20 searches / 3 refreshing per
+      user, max 10 destinations, listing cap ≥ 1, strict boolean for disabled, disabling
+      cancels the user's run, session lookups off the event loop, refuse to start if
+      session.key is new while users exist, fetch-cache TTL ≤ 24 h, old cache entries
+      treated as misses, indexed pruning, invite page warns when already signed in.
+      Kept the hard login lockout (a growing delay doesn't bound parallel guessing).
 - [x] Live check in the local container: migration moved the existing search to admin,
       invite single-use (410 after), admin gets 404 on a user's search, quota counts,
       an identical second search reused both sites' pages and all routes
