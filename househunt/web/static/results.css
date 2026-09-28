@@ -18,3 +18,4 @@
 .hh-badge-new { background: #d7f5dd; color: #0b5d1e; }
 .hh-badge-price_down { background: #dbeafe; color: #1e3a8a; }
 .hh-badge-price_up { background: #fde2e1; color: #8a1c1c; }
+.hh-far-label:has(input:disabled) { color: var(--muted, #888); }

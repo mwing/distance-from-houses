@@ -32,7 +32,7 @@ function renderResults(container, DATA, opts = {}) {
     <div class="hh-controls">
       <label>Colour by <select class="hh-colour-by"></select></label>
       <span class="hh-combine" hidden></span>
-      <label><input type="checkbox" class="hh-show-far"> Show houses over the limit</label>
+      <label class="hh-far-label"><input type="checkbox" class="hh-show-far"> <span class="hh-far-text"></span></label>
     </div>
     <div class="hh-map"></div>
     <div class="hh-table-wrap"><table><thead></thead><tbody></tbody></table></div>`;
@@ -198,6 +198,14 @@ function renderResults(container, DATA, opts = {}) {
   else map.setView([60.25, 24.9], 9);
 
   const showFar = $(".hh-show-far");
+  const overCount = DATA.rows.filter(r => !r.within_limits).length;
+  $(".hh-far-text").textContent = overCount
+    ? `Show ${overCount} ${overCount === 1 ? "house" : "houses"} over your max-minutes limits`
+    : "No houses over a max-minutes limit";
+  showFar.disabled = !overCount;
+  if (!overCount) {
+    $(".hh-far-label").title = "Set a max-minutes limit on a destination to hide houses that are too far. Map colours use their own limits.";
+  }
   const visible = r => showFar.checked || r.within_limits;
 
   function recolour() {
