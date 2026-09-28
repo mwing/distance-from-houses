@@ -192,9 +192,9 @@ API sketch:
   dropped as unnecessary for one-at-a-time runs.
 
 Open questions for the user (answer before the deploy tasks):
-- [ ] Server: OS, Docker available? Existing reverse proxy (nginx/Caddy/Traefik)?
+- [x] Server: OS, Docker available? Existing reverse proxy (nginx/Caddy/Traefik)? → deployed by the user
 - [x] Single user, or family/shared with separate logins? → invite-only shared (see Multiple users)
-- [ ] Public domain or LAN/VPN only?
+- [x] Public domain or LAN/VPN only? → deployed by the user
 
 Tasks:
 - [x] Split `pipeline.run` into steps with a progress callback (fetch pages,
@@ -230,7 +230,7 @@ Tasks:
       healthcheck port. Kept the direct X-Forwarded-Proto check for the Secure flag (works
       even when HOUSEHUNT_TRUSTED_PROXIES doesn't match the proxy).
 - [x] `run-local.sh`: the server's Docker setup on localhost (generated password, import, reset)
-- [ ] Deploy to the user's server behind their reverse proxy; smoke test on phone
+- [x] Deploy to the user's server behind their reverse proxy (live at https://asuntohaku.lith.fi, 2026-09-28)
 
 ### Multiple users (roadmap)
 Goal: a few invited people (family, friends) each with their own searches, on
@@ -295,6 +295,33 @@ Tasks:
 - [x] Live check in the local container: migration moved the existing search to admin,
       invite single-use (410 after), admin gets 404 on a user's search, quota counts,
       an identical second search reused both sites' pages and all routes
+
+### Travel modes, build year, nearby services
+Requested 2026-09-28.
+
+Design:
+- **Rush-hour car times:** OSRM is free-flow; multiply by `car.rush_hour_factor`
+  (default 1.2, conservative). The transit shortcut keeps using the raw free-flow
+  time as its lower bound.
+- **Cycling and walking:** FOSSGIS OSRM tables (`routing.openstreetmap.de/routed-bike`,
+  `/routed-foot`), batched like car (≤ 100 coordinates), cached, shared 1 req/s
+  limiter. Verified 2026-09-28: bike ≈ 14 km/h, foot ≈ 4.5 km/h. New destination
+  modes `bike`, `walk`; walking is only realistic for short distances, so it's
+  opt-in per destination.
+- **Build year filter:** `build_year_min/max`. Oikotie `constructionYear[min|max]`,
+  Etuovi `yearMin/yearMax` (both verified), plus client-side check.
+- **Nearby services:** nearest daycare (`amenity=kindergarten`), school
+  (`amenity=school`), grocery store (`shop=supermarket`; `convenience` also matches
+  kiosks) by straight-line distance. One Overpass query for all of Uusimaa
+  (~1.4 MB, ~16 s, verified), cached 7 days and shared by everyone; a stale copy is
+  used if Overpass fails, and the run continues without services if there's none.
+
+Tasks:
+- [ ] Rush-hour factor in config/settings, applied to displayed and scored car times
+- [ ] Generic OSRM table router; bike and walk modes end to end (config, pipeline, UI, colour views)
+- [ ] Build year filter (config, both sources, form)
+- [ ] Overpass fetch + cache, nearest-service distances, columns and popup
+- [ ] Tests, live check, docs
 
 ### Later / ideas
 - [ ] More data points for the colour layer: extra sample points in sparse
