@@ -54,6 +54,10 @@ def build_params(f: Filters, offset: int, limit: int = PAGE_SIZE) -> list[tuple[
         params.append(("size[min]", str(f.size_min)))
     if f.size_max is not None:
         params.append(("size[max]", str(f.size_max)))
+    if f.build_year_min is not None:
+        params.append(("constructionYear[min]", str(f.build_year_min)))
+    if f.build_year_max is not None:
+        params.append(("constructionYear[max]", str(f.build_year_max)))
     for r in f.rooms:
         counts = range(5, 8) if r == 5 else [r]
         params.extend(("roomCount[]", str(c)) for c in counts)

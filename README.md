@@ -103,9 +103,14 @@ the terminal; Ctrl-C stops the run, and finished routes stay cached.
 
 - `filters`: `house_types` (kerrostalo, rivitalo, paritalo, erillistalo,
   omakotitalo, luhtitalo, puutalo-osake), `rooms` (1–5, 5 = 5+),
-  `plot_ownership` (own, rent), `price_min/max`, `size_min/max`, `municipalities`.
-- `destinations`: `address` or `lat`/`lon`, `modes` (transit, car), `weight`,
-  `max_minutes` per mode.
+  `plot_ownership` (own, rent), `price_min/max`, `size_min/max`,
+  `build_year_min/max`, `municipalities`.
+- `destinations`: `address` or `lat`/`lon`, `modes` (transit, car, bike, walk),
+  `weight`, `max_minutes` per mode.
+- `car.rush_hour_factor`: multiplier for car times (default 1.2); the road data
+  assumes empty roads.
+- `nearby_services`: straight-line distance to the nearest daycare, school and
+  grocery store (OpenStreetMap via Overpass, refreshed weekly).
 - `max_listings`: cap per source.
 - `transit`: `arrive_by` or `depart_at`, `day` (next occurrence of that weekday).
 
@@ -136,7 +141,8 @@ in that destination's `modes` that has a time. Lower is better.
 ## Notes
 
 - Transit times only when both ends are in Uusimaa; otherwise car only.
-- Car times are free-flow (no rush-hour traffic).
+- Car times are free-flow, multiplied by `car.rush_hour_factor`. Bike and walk
+  times come from the FOSSGIS OSRM servers (routing.openstreetmap.de).
 - Etuovi and Oikotie are queried through their undocumented website APIs; they
   may change without notice. Keep `max_listings` modest.
 - Routes are cached in `.cache/househunt.sqlite` (CLI) or `data/cache.sqlite`

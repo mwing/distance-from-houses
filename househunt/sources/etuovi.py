@@ -46,6 +46,10 @@ def build_body(f: Filters, offset: int, limit: int = PAGE_SIZE) -> dict:
         body["sizeMin"] = f.size_min
     if f.size_max is not None:
         body["sizeMax"] = f.size_max
+    if f.build_year_min is not None:
+        body["yearMin"] = f.build_year_min
+    if f.build_year_max is not None:
+        body["yearMax"] = f.build_year_max
     if f.house_types:
         body["residentialPropertyTypes"] = [PROPERTY_TYPES[t] for t in f.house_types]
     if f.rooms:

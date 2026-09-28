@@ -35,6 +35,8 @@ class Filters:
     price_max: int | None = None
     size_min: float | None = None
     size_max: float | None = None
+    build_year_min: int | None = None
+    build_year_max: int | None = None
     municipalities: list[str] = field(default_factory=list)
 
 

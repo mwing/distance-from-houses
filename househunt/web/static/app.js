@@ -376,10 +376,16 @@ function destinationEditor(d, onRemove) {
     }
   });
 
-  const modes = chipGroup("modes", ["transit", "car"], d.modes || ["transit", "car"], m => m === "transit" ? "Public transport" : "Car");
+  const MODE_NAMES = {transit: "Public transport", car: "Car", bike: "Bike", walk: "Walk"};
+  const modes = chipGroup("modes", Object.keys(MODE_NAMES), d.modes || ["transit", "car"], m => MODE_NAMES[m]);
   const weight = numberField("Weight", d.weight ?? 1, {min: 0, step: "0.1"});
-  const maxTransit = numberField("Max min, public transport", d.max_minutes?.transit, {min: 1, step: 1});
-  const maxCar = numberField("Max min, car", d.max_minutes?.car, {min: 1, step: 1});
+  const maxFields = Object.fromEntries(Object.entries(MODE_NAMES).map(([m, label]) =>
+    [m, numberField(`Max min, ${label.toLowerCase()}`, d.max_minutes?.[m], {min: 1, step: 1})]));
+  const syncMaxFields = () => {
+    const on = new Set(checkedValues(modes, "modes"));
+    for (const [m, f] of Object.entries(maxFields)) f.el.hidden = !on.has(m);
+  };
+  modes.addEventListener("change", syncMaxFields);
   const el = h("div", {class: "dest"},
     h("div", {class: "dest-head"},
       h("label", {class: "field"}, h("span", {}, "Name"), name),
@@ -387,15 +393,19 @@ function destinationEditor(d, onRemove) {
       find,
       h("button", {type: "button", class: "danger", onclick: onRemove}, "Remove")),
     pin, results,
-    h("div", {class: "row"}, modes, weight.el, maxTransit.el, maxCar.el),
+    h("div", {class: "row"}, modes, weight.el, Object.values(maxFields).map(f => f.el)),
+    h("p", {class: "hint"}, "Walking is only realistic for short distances. The first ticked mode with a time is used for ranking."),
   );
+  syncMaxFields();
   el.read = () => {
     const out = {name: name.value.trim(), modes: checkedValues(modes, "modes"), weight: Number(weight.input.value || 1)};
     if (address.value.trim()) out.address = address.value.trim();
     if (state.lat != null) { out.lat = state.lat; out.lon = state.lon; }
     const mm = {};
-    if (maxTransit.input.value) mm.transit = Number(maxTransit.input.value);
-    if (maxCar.input.value) mm.car = Number(maxCar.input.value);
+    const chosen = new Set(out.modes);
+    for (const [m, f] of Object.entries(maxFields)) {
+      if (chosen.has(m) && f.input.value) mm[m] = Number(f.input.value);
+    }
     if (Object.keys(mm).length) out.max_minutes = mm;
     return out;
   };
@@ -423,6 +433,8 @@ async function viewSettings(profileId) {
   const priceMax = numberField("Price max €", f.price_max, {min: 0, step: 1000});
   const sizeMin = numberField("Size min m²", f.size_min, {min: 0});
   const sizeMax = numberField("Size max m²", f.size_max, {min: 0});
+  const yearMin = numberField("Built from", f.build_year_min, {min: 1700, max: 2100, step: 1});
+  const yearMax = numberField("Built until", f.build_year_max, {min: 1700, max: 2100, step: 1});
   const selectedMunis = new Set((f.municipalities || []).map(m => m.toLowerCase()));
   const munis = h("div", {class: "chips"}, meta.municipalities.map(m =>
     h("label", {class: "chip"}, h("input", {type: "checkbox", name: "municipalities", value: m, checked: selectedMunis.has(m.toLowerCase())}), m)));
@@ -442,6 +454,8 @@ async function viewSettings(profileId) {
   const day = h("select", {}, meta.weekdays.map(w => h("option", {value: w, selected: (t.day || "tuesday") === w}, titleCase(w))));
   const router = h("select", {}, meta.routers.map(r => h("option", {value: r, selected: (t.router || "hsl") === r}, r === "hsl" ? "HSL (Helsinki region)" : "Finland (nationwide)")));
 
+  const rush = numberField("Rush-hour factor for car", s.car?.rush_hour_factor ?? 1.2, {min: 1, max: 3, step: "0.05"});
+  const nearbyBox = h("input", {type: "checkbox", checked: s.nearby_services !== false});
   const green = numberField("Green up to × limit", mp.green_factor, {min: 0, step: "0.05"});
   const red = numberField("Red from × limit", mp.red_factor, {min: 0.05, step: "0.05"});
   const defLimit = numberField("Default limit, min", mp.default_max_minutes, {min: 1, step: 1});
@@ -463,7 +477,7 @@ async function viewSettings(profileId) {
       h("div", {class: "row"},
         h("div", {class: "field"}, h("span", {}, "Rooms"), rooms),
         h("div", {class: "field"}, h("span", {}, "Plot"), plot)),
-      h("div", {class: "row"}, priceMin.el, priceMax.el, sizeMin.el, sizeMax.el),
+      h("div", {class: "row"}, priceMin.el, priceMax.el, sizeMin.el, sizeMax.el, yearMin.el, yearMax.el),
       h("div", {class: "field", style: "margin-top:12px"}, h("span", {}, "Municipalities (none = all of Uusimaa)"), munis)),
     h("fieldset", {}, h("legend", {}, "Destinations"),
       h("p", {class: "hint"}, "Places you travel to. Use Find to pin the address. The weight sets how much a destination counts in the ranking."),
@@ -475,6 +489,9 @@ async function viewSettings(profileId) {
         h("label", {}, arrive, "Arrive by"), h("label", {}, depart, "Depart at"), timeInput,
         h("label", {class: "field"}, h("span", {}, "Day"), day),
         h("label", {class: "field"}, h("span", {}, "Journey planner"), router))),
+    h("fieldset", {}, h("legend", {}, "Car and nearby services"),
+      h("div", {class: "row"}, rush.el, h("label", {}, nearbyBox, "Show nearest daycare, school and grocery store")),
+      h("p", {class: "hint"}, "Car times come from a free-flow road network, so they're multiplied by the rush-hour factor. Service distances are straight-line.")),
     h("fieldset", {}, h("legend", {}, "Map colours"),
       h("div", {class: "row"}, green.el, red.el, defLimit.el, fade.el, idw.el),
       h("p", {class: "hint"}, "Green up to limit × green factor, red from limit × red factor. The default limit applies to destinations without a max.")),
@@ -496,6 +513,7 @@ async function viewSettings(profileId) {
         plot_ownership: checkedValues(plot, "plot_ownership"),
         price_min: numOrNull(priceMin.input.value), price_max: numOrNull(priceMax.input.value),
         size_min: numOrNull(sizeMin.input.value), size_max: numOrNull(sizeMax.input.value),
+        build_year_min: numOrNull(yearMin.input.value), build_year_max: numOrNull(yearMax.input.value),
         municipalities: checkedValues(munis, "municipalities"),
       },
       destinations: [...destList.children].map(el => el.read()),
@@ -503,6 +521,8 @@ async function viewSettings(profileId) {
         router: router.value, day: day.value,
         [depart.checked ? "depart_at" : "arrive_by"]: timeInput.value,
       },
+      car: {rush_hour_factor: Number(rush.input.value || 1.2)},
+      nearby_services: nearbyBox.checked,
       map: {
         green_factor: Number(green.input.value), red_factor: Number(red.input.value),
         default_max_minutes: Number(defLimit.input.value), fade_km: Number(fade.input.value), idw_power: Number(idw.input.value),

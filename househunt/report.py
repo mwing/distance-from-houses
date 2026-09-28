@@ -5,11 +5,12 @@ import json
 from pathlib import Path
 
 from .config import MapSettings
+from .services import KINDS as SERVICE_KINDS
 from .models import Destination
 from .pipeline import Result
 
 STATIC = Path(__file__).parent / "web" / "static"
-CSV_SKIP = {"times", "badges"}
+CSV_SKIP = {"times", "badges", "nearby"}
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 
@@ -29,8 +30,11 @@ def _row(r: Result, dests: list[Destination]) -> dict:
         "build_year": l.build_year,
     }
     for d in dests:
-        row[f"{d.name} transit min"] = r.times[d.name]["transit"]
-        row[f"{d.name} car min"] = r.times[d.name]["car"]
+        for mode in d.modes:
+            row[f"{d.name} {mode} min"] = r.times[d.name].get(mode)
+    for kind in SERVICE_KINDS:
+        row[f"{kind} m"] = (r.nearby.get(kind) or {}).get("m")
+    row["nearby"] = r.nearby
     row["url"] = l.url
     row["other_urls"] = " ".join(l.other_urls)
     row["lat"], row["lon"], row["image"] = l.lat, l.lon, l.image
@@ -40,10 +44,13 @@ def _row(r: Result, dests: list[Destination]) -> dict:
     return row
 
 
-def build_payload(results: list[Result], dests: list[Destination], map_settings: MapSettings) -> dict:
+def build_payload(results: list[Result], dests: list[Destination], map_settings: MapSettings,
+                  car_factor: float = 1.0) -> dict:
     columns = ["score", "address", "municipality", "house_type", "rooms", "size_m2", "price_eur", "price_per_m2", "build_year"]
     for d in dests:
-        columns += [f"{d.name} transit min", f"{d.name} car min"]
+        columns += [f"{d.name} {mode} min" for mode in d.modes]
+    if any(r.nearby for r in results):
+        columns += [f"{kind} m" for kind in SERVICE_KINDS]
     return {
         "rows": [_row(r, dests) for r in results],
         "dests": [
@@ -51,6 +58,7 @@ def build_payload(results: list[Result], dests: list[Destination], map_settings:
             for d in dests
         ],
         "columns": columns,
+        "carFactor": car_factor,
         "map": {
             "greenFactor": map_settings.green_factor,
             "redFactor": map_settings.red_factor,

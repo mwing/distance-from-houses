@@ -317,11 +317,13 @@ Design:
   used if Overpass fails, and the run continues without services if there's none.
 
 Tasks:
-- [ ] Rush-hour factor in config/settings, applied to displayed and scored car times
-- [ ] Generic OSRM table router; bike and walk modes end to end (config, pipeline, UI, colour views)
-- [ ] Build year filter (config, both sources, form)
-- [ ] Overpass fetch + cache, nearest-service distances, columns and popup
-- [ ] Tests, live check, docs
+- [x] Rush-hour factor in config/settings, applied to displayed and scored car times
+- [x] Generic OSRM table router; bike and walk modes end to end (config, pipeline, UI, colour views)
+- [x] Build year filter (config, both sources, form)
+- [x] Overpass fetch + cache, nearest-service distances, columns and popup
+- [x] Tests, live check, docs
+- [x] Columns and popup lines only for the modes a destination uses (car is still
+      computed for the transit shortcut). Overpass often answers 504 when busy; 4 attempts.
 
 ### Later / ideas
 - [ ] More data points for the colour layer: extra sample points in sparse

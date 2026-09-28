@@ -10,6 +10,8 @@ filters:
   price_max: 600000
   size_min: 90
   size_max: null
+  build_year_min: 1980
+  build_year_max: null
   municipalities: [Espoo, Vantaa, Kauniainen]   # empty = all of Uusimaa
 
 destinations:
@@ -17,13 +19,27 @@ destinations:
     address: Keilaniemi, Espoo
     modes: [transit, car]
     weight: 2
-    max_minutes: {transit: 45}
+    max_minutes: {car:
+  rush_hour_factor: 1.2   # OSRM times assume empty roads
+
+nearby_services: true     # nearest daycare, school, grocery store (straight-line)
+
+transit: 45}
   - name: Helsinki centre
     address: Rautatieasema, Helsinki
+  - name: School
+    address: Tapiolan koulu, Espoo
+    modes: [bike, walk]
+    max_minutes: {bike: 20}
   - name: Grandparents
     lat: 61.4978
     lon: 23.7610
     modes: [car]
+
+car:
+  rush_hour_factor: 1.2   # OSRM times assume empty roads
+
+nearby_services: true     # nearest daycare, school, grocery store (straight-line)
 
 transit:
   # Free key from https://portal-api.digitransit.fi/ ; or set DIGITRANSIT_API_KEY

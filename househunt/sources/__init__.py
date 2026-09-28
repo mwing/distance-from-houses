@@ -34,6 +34,11 @@ def matches(listing: Listing, f: Filters) -> bool:
             return False
         if f.price_max is not None and listing.price > f.price_max:
             return False
+    if listing.build_year is not None:
+        if f.build_year_min is not None and listing.build_year < f.build_year_min:
+            return False
+        if f.build_year_max is not None and listing.build_year > f.build_year_max:
+            return False
     if listing.size is not None:
         if f.size_min is not None and listing.size < f.size_min:
             return False

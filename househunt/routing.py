@@ -13,7 +13,6 @@ from .progress import Progress
 
 log = logging.getLogger(__name__)
 
-OSRM = "https://router.project-osrm.org"
 OSRM_MAX_COORDS = 100
 DIGITRANSIT = "https://api.digitransit.fi/routing/v2/{router}/gtfs/v1"
 HELSINKI = ZoneInfo("Europe/Helsinki")
@@ -21,11 +20,22 @@ HELSINKI = ZoneInfo("Europe/Helsinki")
 Point = tuple[float, float]
 
 
-class CarRouter:
-    def __init__(self, cache: Cache, http: httpx.Client | None = None):
+OSRM_TABLES = {
+    "car": ("https://router.project-osrm.org/table/v1/driving", "osrm"),
+    "bike": ("https://routing.openstreetmap.de/routed-bike/table/v1/driving", "fossgis"),
+    "walk": ("https://routing.openstreetmap.de/routed-foot/table/v1/driving", "fossgis"),
+}
+
+
+class TableRouter:
+    """Free-flow OSRM durations; the cache namespace is the mode name."""
+
+    def __init__(self, mode: str, cache: Cache, http: httpx.Client | None = None):
+        self.mode = mode
+        self.url, limiter = OSRM_TABLES[mode]
         self.cache = cache
         self.http = http or client(TOOL_UA)
-        self.limiter = shared_limiter("osrm", 1.0)
+        self.limiter = shared_limiter(limiter, 1.0)
 
     @staticmethod
     def _key(o: Point, d: Point) -> str:
@@ -34,18 +44,18 @@ class CarRouter:
     def minutes(
         self, origins: list[Point], dests: list[Point], progress: Progress | None = None
     ) -> dict[tuple[Point, Point], float | None]:
-        missing = [o for o in dict.fromkeys(origins) if any(not self.cache.has("car", self._key(o, d)) for d in dests)]
+        missing = [o for o in dict.fromkeys(origins) if any(not self.cache.has(self.mode, self._key(o, d)) for d in dests)]
         chunk = OSRM_MAX_COORDS - len(dests)
         batches = [missing[i : i + chunk] for i in range(0, len(missing), chunk)]
         if progress:
-            progress.start("car", len(batches))
+            progress.start(self.mode, len(batches))
         for batch in batches:
             if progress:
                 progress.check()
             self._fetch(batch, dests)
             if progress:
                 progress.advance()
-        return {(o, d): self.cache.get("car", self._key(o, d)) for o in origins for d in dests}
+        return {(o, d): self.cache.get(self.mode, self._key(o, d)) for o in origins for d in dests}
 
     def _fetch(self, origins: list[Point], dests: list[Point]) -> None:
         coords = ";".join(f"{lon},{lat}" for lat, lon in origins + dests)
@@ -54,7 +64,7 @@ class CarRouter:
         self.limiter.wait()
         resp = request_with_retry(
             lambda: self.http.get(
-                f"{OSRM}/table/v1/driving/{coords}",
+                f"{self.url}/{coords}",
                 params={"sources": src, "destinations": dst, "annotations": "duration"},
             )
         )
@@ -63,7 +73,7 @@ class CarRouter:
         for i, o in enumerate(origins):
             for j, d in enumerate(dests):
                 sec = durations[i][j]
-                self.cache.set("car", self._key(o, d), round(sec / 60, 1) if sec is not None else None)
+                self.cache.set(self.mode, self._key(o, d), round(sec / 60, 1) if sec is not None else None)
 
 
 PLAN_QUERY = """

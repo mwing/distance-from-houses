@@ -159,7 +159,7 @@ class JobManager:
             if cap is not None:
                 cfg.max_listings = min(cfg.max_listings, cap)
             results = run_pipeline(cfg, progress, fetch_cache_hours=self.settings.fetch_cache_hours)
-            payload = build_payload(results, cfg.destinations, cfg.map)
+            payload = build_payload(results, cfg.destinations, cfg.map, cfg.car.rush_hour_factor)
             self.store.apply_history(profile["id"], payload)
             self.store.save_progress(run_id, progress.snapshot())
             self.store.finish_run(run_id, "done", payload=payload, summary=summary(payload))

@@ -7,7 +7,9 @@ from .fetchcache import FetchCache
 from .geocode import Geocoder
 from .models import Destination, Listing
 from .progress import Cancelled, Progress
-from .routing import CarRouter, TransitRouter
+from .routing import TableRouter, TransitRouter
+from .services import KINDS as SERVICE_KINDS
+from .services import Services, nearest
 from .sources import dedupe, etuovi, oikotie
 
 log = logging.getLogger(__name__)
@@ -21,6 +23,7 @@ class Result:
     times: dict[str, dict[str, float | None]] = field(default_factory=dict)
     score: float | None = None
     too_far: bool = False
+    nearby: dict[str, dict | None] = field(default_factory=dict)
 
 
 def fetch_listings(cfg: Config, progress: Progress | None = None, fetch_cache: FetchCache | None = None) -> list[Listing]:
@@ -113,11 +116,27 @@ def run(cfg: Config, progress: Progress | None = None, fetch_cache_hours: float 
 
     points = {l.id: (l.lat, l.lon) for l in listings}
     dest_points = [(d.lat, d.lon) for d in dests]
-    car = CarRouter(cache).minutes(list(points.values()), dest_points, progress)
+    free_flow = TableRouter("car", cache).minutes(list(points.values()), dest_points, progress)
+    other = {}
+    for mode in ("bike", "walk"):
+        mode_dests = [(d.lat, d.lon) for d in dests if mode in d.modes]
+        if mode_dests:
+            other[mode] = TableRouter(mode, cache).minutes(list(points.values()), list(dict.fromkeys(mode_dests)), progress)
 
+    factor = cfg.car.rush_hour_factor
     results = []
+    raw_car: dict[tuple[str, str], float | None] = {}
     for l in listings:
-        times = {d.name: {"car": car[(points[l.id], (d.lat, d.lon))], "transit": None} for d in dests}
+        times = {}
+        for d in dests:
+            pair = (points[l.id], (d.lat, d.lon))
+            raw = free_flow[pair]
+            raw_car[(l.id, d.name)] = raw
+            t = {"car": round(raw * factor, 1) if raw is not None else None, "transit": None}
+            for mode, table in other.items():
+                if mode in d.modes:
+                    t[mode] = table[pair]
+            times[d.name] = t
         results.append(Result(l, times))
 
     transit_router = None
@@ -133,8 +152,9 @@ def run(cfg: Config, progress: Progress | None = None, fetch_cache_hours: float 
                 if "transit" not in d.modes or not d.in_uusimaa:
                     continue
                 limit = d.max_minutes.get("transit")
-                car_min = r.times[d.name]["car"]
-                # Free-flow driving is nearly always faster than transit, so the car time is a lower bound.
+                car_min = raw_car[(r.listing.id, d.name)]
+                # Free-flow driving (before the rush-hour factor) is nearly always faster than transit,
+                # so it's a safe lower bound.
                 if limit is not None and car_min is not None and car_min > limit:
                     r.times[d.name]["transit_at_least"] = car_min
                     continue
@@ -142,6 +162,13 @@ def run(cfg: Config, progress: Progress | None = None, fetch_cache_hours: float 
         transit = transit_router.minutes([(points[r.listing.id], (d.lat, d.lon)) for r, d in pairs], progress)
         for r, d in pairs:
             r.times[d.name]["transit"] = transit[(points[r.listing.id], (d.lat, d.lon))]
+
+    if cfg.nearby_services:
+        progress.start("services")
+        pois = Services(cache).points()
+        if pois:
+            for r in results:
+                r.nearby = {kind: nearest(r.listing.lat, r.listing.lon, pois.get(kind, [])) for kind in SERVICE_KINDS}
 
     for r in results:
         r.score = _score(r.times, dests)

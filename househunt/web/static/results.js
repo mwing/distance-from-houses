@@ -15,10 +15,15 @@ function ttColor(minutes, limit, greenFactor, redFactor) {
 
 const hhEsc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const hhCss = rgb => rgb ? `rgb(${rgb.join(",")})` : "#9e9e9e";
+const HH_MODE_LABEL = {transit: "public transport", car: "car", bike: "bike", walk: "walk"};
+const HH_SERVICE_LABEL = {daycare: "Daycare", school: "School", grocery: "Grocery"};
+const hhDistance = m => m == null ? "–" : m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1).replace(".", ",")} km`;
 const hhSafeUrl = u => /^https?:\/\//i.test(u || "") ? u : "#";
 
 function renderResults(container, DATA, opts = {}) {
   const M = DATA.map;
+  const carFactor = DATA.carFactor || 1;
+  const modeLabel = mode => mode === "car" && carFactor !== 1 ? `car (rush hour ×${carFactor})` : HH_MODE_LABEL[mode] || mode;
   const cols = DATA.columns;
   const storeKey = `househunt.combineExcluded.${opts.storageId || "report"}`;
   let sortCol = "score", asc = true;
@@ -78,7 +83,7 @@ function renderResults(container, DATA, opts = {}) {
   DATA.dests.forEach(d => d.modes.forEach(mode => {
     if (DATA.rows.some(r => travelValue(r, d.name, mode))) {
       const limit = limitFor(d, mode);
-      options.push({label: `${d.name} · ${mode} (limit ${limit} min)`, unit: "min", limit, value: r => travelValue(r, d.name, mode)});
+      options.push({label: `${d.name} · ${modeLabel(mode)} (limit ${limit} min)`, unit: "min", limit, value: r => travelValue(r, d.name, mode)});
     }
   }));
   const select = $(".hh-colour-by");
@@ -177,10 +182,17 @@ function renderResults(container, DATA, opts = {}) {
   const bounds = [];
   const markers = DATA.rows.map(r => {
     const img = r.image ? `<img src="${hhEsc(hhSafeUrl(r.image))}" width="220" alt=""><br>` : "";
-    const times = DATA.dests.map(d => `${hhEsc(d.name)}: ${fmt(r, d.name, "transit")} min transit / ${fmt(r, d.name, "car")} min car`).join("<br>");
+    const times = DATA.dests.map(d => `${hhEsc(d.name)}: ` +
+      d.modes.map(mode => `${hhEsc(fmt(r, d.name, mode))} min ${hhEsc(modeLabel(mode))}`).join(" · ")).join("<br>");
+    const nearby = r.nearby && Object.keys(r.nearby).length
+      ? "<br>" + Object.entries(HH_SERVICE_LABEL).map(([k, label]) => {
+          const n = r.nearby[k];
+          return `${label} ${hhEsc(hhDistance(n?.m))}${n?.name ? ` (${hhEsc(n.name)})` : ""}`;
+        }).join("<br>")
+      : "";
     bounds.push([r.lat, r.lon]);
     return L.circleMarker([r.lat, r.lon], {radius: 7, color: "#1d1d1f", weight: 1.5, fillOpacity: .95})
-      .bindPopup(`${img}${badgeHtml(r)}<b><a href="${hhEsc(hhSafeUrl(r.url))}" target="_blank" rel="noopener">${hhEsc(r.address)}, ${hhEsc(r.municipality)}</a></b><br>${hhEsc(r.house_type)} · ${hhEsc(r.rooms ?? "?")} h · ${hhEsc(r.size_m2 ?? "?")} m² · ${hhEsc(typeof r.price_eur === "number" ? r.price_eur.toLocaleString("fi-FI") : "?")} €<br>${times}`);
+      .bindPopup(`${img}${badgeHtml(r)}<b><a href="${hhEsc(hhSafeUrl(r.url))}" target="_blank" rel="noopener">${hhEsc(r.address)}, ${hhEsc(r.municipality)}</a></b><br>${hhEsc(r.house_type)} · ${hhEsc(r.rooms ?? "?")} h · ${hhEsc(r.size_m2 ?? "?")} m² · ${hhEsc(typeof r.price_eur === "number" ? r.price_eur.toLocaleString("fi-FI") : "?")} €<br>${times}${nearby}`);
   });
   if (bounds.length) map.fitBounds(bounds, {padding: [20, 20]});
   else map.setView([60.25, 24.9], 9);

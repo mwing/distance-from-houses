@@ -51,6 +51,8 @@ DEFAULT_SETTINGS = {
     "destinations": [],
     "transit": {"router": "hsl", "arrive_by": "09:00", "day": "tuesday"},
     "map": {"green_factor": 0.5, "red_factor": 1.0, "default_max_minutes": 45, "fade_km": 3, "idw_power": 2},
+    "car": {"rush_hour_factor": 1.2},
+    "nearby_services": True,
 }
 
 

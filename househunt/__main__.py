@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         except (KeyboardInterrupt, Cancelled):
             print("\nInterrupted. Finished routes are cached; the next run continues from there.", file=sys.stderr)
             return 130
-        payload = build_payload(results, cfg.destinations, cfg.map)
+        payload = build_payload(results, cfg.destinations, cfg.map, cfg.car.rush_hour_factor)
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
         csv_path = cfg.output_dir / "listings.csv"
         write_csv(payload, csv_path)

@@ -8,7 +8,8 @@ import yaml
 
 from .models import HOUSE_TYPES, PLOT_OWNERSHIP, Destination, Filters
 
-MODES = ("transit", "car")
+MODES = ("transit", "car", "bike", "walk")
+DEFAULT_MODES = ("transit", "car")
 
 
 @dataclass
@@ -31,6 +32,11 @@ class MapSettings:
 
 
 @dataclass
+class CarSettings:
+    rush_hour_factor: float = 1.2
+
+
+@dataclass
 class Config:
     filters: Filters
     destinations: list[Destination]
@@ -38,6 +44,8 @@ class Config:
     max_listings: int = 500
     transit: TransitSettings = field(default_factory=TransitSettings)
     map: MapSettings = field(default_factory=MapSettings)
+    car: CarSettings = field(default_factory=CarSettings)
+    nearby_services: bool = True
     cache_path: Path = Path(".cache/househunt.sqlite")
     output_dir: Path = Path("output")
 
@@ -57,6 +65,8 @@ def _parse_filters(raw: dict) -> Filters:
         price_max=raw.get("price_max"),
         size_min=raw.get("size_min"),
         size_max=raw.get("size_max"),
+        build_year_min=raw.get("build_year_min"),
+        build_year_max=raw.get("build_year_max"),
         municipalities=[str(m).lower() for m in _as_list(raw.get("municipalities"))],
     )
     bad = set(f.house_types) - set(HOUSE_TYPES)
@@ -69,6 +79,10 @@ def _parse_filters(raw: dict) -> Filters:
         v = getattr(f, name)
         if v is not None and (not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0):
             raise ValueError(f"{name} must be a number of zero or more")
+    for name in ("build_year_min", "build_year_max"):
+        v = getattr(f, name)
+        if v is not None and (isinstance(v, bool) or not isinstance(v, int) or not 1700 <= v <= 2100):
+            raise ValueError(f"{name} must be a year between 1700 and 2100")
     if any(r < 1 or r > 5 for r in f.rooms):
         raise ValueError("rooms must be between 1 and 5 (5 means 5 or more)")
     return f
@@ -79,13 +93,13 @@ def _parse_destination(raw: dict) -> Destination:
         raise ValueError("Every destination needs a name")
     if not raw.get("address") and (raw.get("lat") is None or raw.get("lon") is None):
         raise ValueError(f"Destination {raw['name']!r} needs an address or lat/lon")
-    modes = [str(m).lower() for m in _as_list(raw.get("modes")) or list(MODES)]
+    modes = [str(m).lower() for m in _as_list(raw.get("modes")) or list(DEFAULT_MODES)]
     bad = set(modes) - set(MODES)
     if bad:
         raise ValueError(f"Destination {raw['name']!r}: unknown modes {sorted(bad)}")
     max_minutes = {str(k).lower(): float(v) for k, v in (raw.get("max_minutes") or {}).items() if v is not None}
     if set(max_minutes) - set(MODES) or not all(math.isfinite(v) and v > 0 for v in max_minutes.values()):
-        raise ValueError(f"Destination {raw['name']!r}: max_minutes needs positive values for transit/car")
+        raise ValueError(f"Destination {raw['name']!r}: max_minutes needs positive values for {'/'.join(MODES)}")
     weight = float(raw.get("weight", 1.0))
     if not math.isfinite(weight) or weight < 0:
         raise ValueError(f"Destination {raw['name']!r}: weight must be zero or more")
@@ -177,8 +191,13 @@ def _config_from_dict(raw: dict, env_api_key: bool) -> Config:
     max_listings = int(raw.get("max_listings", 500))
     if not 1 <= max_listings <= 5000:
         raise ValueError("max_listings must be between 1 and 5000")
+    car = CarSettings(rush_hour_factor=float((raw.get("car") or {}).get("rush_hour_factor", 1.2)))
+    if not (math.isfinite(car.rush_hour_factor) and 1 <= car.rush_hour_factor <= 3):
+        raise ValueError("car.rush_hour_factor must be between 1 and 3")
     return Config(
         map=map_settings,
+        car=car,
+        nearby_services=bool(raw.get("nearby_services", True)),
         filters=_parse_filters(raw.get("filters") or {}),
         destinations=destinations,
         sources=sources,
